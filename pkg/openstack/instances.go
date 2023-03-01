@@ -338,6 +338,7 @@ func (i *Instances) InstanceMetadata(ctx context.Context, node *v1.Node) (*cloud
 	if err != nil {
 		return nil, err
 	}
+
 	addresses, err := nodeAddresses(srv, interfaces, i.networkingOpts)
 	if err != nil {
 		return nil, err
@@ -577,11 +578,13 @@ func getServerByName(client *gophercloud.ServiceClient, name types.NodeName) (*S
 func nodeAddresses(srv *servers.Server, interfaces []attachinterfaces.Interface, networkingOpts NetworkingOpts) ([]v1.NodeAddress, error) {
 	addrs := []v1.NodeAddress{}
 
+	networkingOpts.ControlPlaneInterfaceTag = "control-plane-interface"
 	// parse private IP addresses first in an ordered manner
 	for _, iface := range interfaces {
 		for _, fixedIP := range iface.FixedIPs {
 			if iface.PortState == "ACTIVE" {
 				isIPv6 := net.ParseIP(fixedIP.IPAddress).To4() == nil
+				//TODO this will be removed and added to CCM
 				if !(isIPv6 && networkingOpts.IPv6SupportDisabled) {
 					AddToNodeAddresses(&addrs,
 						v1.NodeAddress{
@@ -670,12 +673,34 @@ func nodeAddresses(srv *servers.Server, interfaces []attachinterfaces.Interface,
 
 			isIPv6 := net.ParseIP(props.Addr).To4() == nil
 			if !(isIPv6 && networkingOpts.IPv6SupportDisabled) {
-				AddToNodeAddresses(&addrs,
-					v1.NodeAddress{
-						Type:    addressType,
-						Address: props.Addr,
-					},
-				)
+				if networkingOpts.ControlPlaneInterfaceTag != "" {
+					if isTaggedInterface(interfaces, networkingOpts.ControlPlaneInterfaceTag, props.Addr) {
+						klog.V(1).Infof("!!!! Tagged interface (%v)", addrs)
+						AddToNodeAddresses(&addrs,
+							v1.NodeAddress{
+								Type:    addressType,
+								Address: props.Addr,
+							},
+						)
+					} else {
+						klog.V(1).Infof("!!!! Removing untagged interface (%v)", addrs)
+						RemoveFromNodeAddresses(&addrs,
+							v1.NodeAddress{
+								Type:    addressType,
+								Address: props.Addr,
+							},
+						)
+					}
+				} else {
+					klog.V(1).Infof("!!!! Adding all addresses regardless if it's tagged (%v)", addrs)
+					AddToNodeAddresses(&addrs,
+						v1.NodeAddress{
+							Type:    addressType,
+							Address: props.Addr,
+						},
+					)
+				}
+
 			}
 		}
 	}
@@ -685,6 +710,18 @@ func nodeAddresses(srv *servers.Server, interfaces []attachinterfaces.Interface,
 	}
 
 	return addrs, nil
+}
+
+func isTaggedInterface(interfaces []attachinterfaces.Interface, tag, address string) bool {
+	for _, iface := range interfaces {
+		for _, fixedIP := range iface.FixedIPs {
+			if address == fixedIP.IPAddress && tag == iface.Tag {
+				return true
+			}
+		}
+
+	}
+	return false
 }
 
 func getAddressesByName(client *gophercloud.ServiceClient, name types.NodeName, networkingOpts NetworkingOpts) ([]v1.NodeAddress, error) {
@@ -735,6 +772,7 @@ func getAttachedInterfacesByID(client *gophercloud.ServiceClient, serviceID stri
 	var interfaces []attachinterfaces.Interface
 
 	mc := metrics.NewMetricContext("server_os_interface", "list")
+	client.Microversion = "2.70"
 	pager := attachinterfaces.List(client, serviceID)
 	err := pager.EachPage(func(page pagination.Page) (bool, error) {
 		s, err := attachinterfaces.ExtractInterfaces(page)

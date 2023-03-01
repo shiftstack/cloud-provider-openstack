@@ -51,6 +51,7 @@ type Interface struct {
 	PortID    string    `json:"port_id"`
 	NetID     string    `json:"net_id"`
 	MACAddr   string    `json:"mac_addr"`
+	Tag       string    `json:"tag"`
 }
 
 // InterfacePage abstracts the raw results of making a List() request against

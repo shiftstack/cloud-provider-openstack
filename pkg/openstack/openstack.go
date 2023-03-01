@@ -120,10 +120,11 @@ type LBClass struct {
 
 // NetworkingOpts is used for networking settings
 type NetworkingOpts struct {
-	IPv6SupportDisabled bool     `gcfg:"ipv6-support-disabled"`
-	PublicNetworkName   []string `gcfg:"public-network-name"`
-	InternalNetworkName []string `gcfg:"internal-network-name"`
-	AddressSortOrder    string   `gcfg:"address-sort-order"`
+	IPv6SupportDisabled      bool     `gcfg:"ipv6-support-disabled"`
+	PublicNetworkName        []string `gcfg:"public-network-name"`
+	InternalNetworkName      []string `gcfg:"internal-network-name"`
+	AddressSortOrder         string   `gcfg:"address-sort-order"`
+	ControlPlaneInterfaceTag string   `gcfg:"control-plane-interface-tag"`
 }
 
 // RouterOpts is used for Neutron routes
