@@ -68,7 +68,7 @@ func (r *Routes) ListRoutes(ctx context.Context, clusterName string) ([]*cloudpr
 			return false, err
 		}
 
-		addrs, err := nodeAddresses(srv, interfaces, r.networkingOpts)
+		addrs, err := nodeAddresses(r.network, srv, interfaces, r.networkingOpts)
 		if err != nil {
 			return false, err
 		}
@@ -186,7 +186,7 @@ func (r *Routes) CreateRoute(ctx context.Context, clusterName string, nameHint s
 
 	ip, _, _ := net.ParseCIDR(route.DestinationCIDR)
 	isCIDRv6 := ip.To4() == nil
-	addr, err := getAddressByName(r.compute, route.TargetNode, isCIDRv6, r.networkingOpts)
+	addr, err := getAddressByName(r.network, r.compute, route.TargetNode, isCIDRv6, r.networkingOpts)
 
 	if err != nil {
 		return err
@@ -268,7 +268,7 @@ func (r *Routes) DeleteRoute(ctx context.Context, clusterName string, route *clo
 	// Blackhole routes are orphaned and have no counterpart in OpenStack
 	if !route.Blackhole {
 		var err error
-		addr, err = getAddressByName(r.compute, route.TargetNode, isCIDRv6, r.networkingOpts)
+		addr, err = getAddressByName(r.network, r.compute, route.TargetNode, isCIDRv6, r.networkingOpts)
 		if err != nil {
 			return err
 		}
