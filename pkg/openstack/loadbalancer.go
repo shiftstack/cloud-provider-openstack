@@ -1315,9 +1315,6 @@ func (lbaas *LbaasV2) checkService(service *corev1.Service, nodes []*corev1.Node
 			klog.V(3).InfoS("Enforcing internal LB", "annotation", true, "config", false)
 		}
 		svcConf.internal = true
-	} else if svcConf.preferredIPFamily == corev1.IPv6Protocol {
-		// floating IPs are not supported in IPv6 networks
-		svcConf.internal = true
 	} else {
 		svcConf.internal = getBoolFromServiceAnnotation(service, ServiceAnnotationLoadBalancerInternal, lbaas.opts.InternalLB)
 	}
