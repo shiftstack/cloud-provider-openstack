@@ -10,6 +10,7 @@ import (
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"google.golang.org/grpc"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder/openstack"
+	"k8s.io/cloud-provider-openstack/pkg/util/brick"
 	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
 	"k8s.io/cloud-provider-openstack/pkg/util/mount"
 	"k8s.io/klog/v2"
@@ -57,7 +58,7 @@ func NewIdentityServer(d *Driver) *identityServer {
 	}
 }
 
-func NewNodeServer(d *Driver, mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string) *nodeServer {
+func NewNodeServer(d *Driver, mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string, connector brick.IConnector) *nodeServer {
 	if opts.NodeVolumeAttachLimit < 0 || opts.NodeVolumeAttachLimit > maxVolumesPerNode {
 		opts.NodeVolumeAttachLimit = maxVolumesPerNode
 	}
@@ -66,6 +67,7 @@ func NewNodeServer(d *Driver, mount mount.IMount, metadata metadata.IMetadata, o
 		Driver:     d,
 		Mount:      mount,
 		Metadata:   metadata,
+		Brick:      connector,
 		Topologies: topologies,
 		Opts:       opts,
 	}

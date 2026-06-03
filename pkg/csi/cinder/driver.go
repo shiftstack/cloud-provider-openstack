@@ -68,6 +68,8 @@ type Driver struct {
 	endpoint     string
 	clusterID    string
 	withTopology bool
+	attachMode   string
+	brickEndpoint string
 
 	ids *identityServer
 	cs  *controllerServer
@@ -84,18 +86,27 @@ type DriverOpts struct {
 	ClusterID    string
 	Endpoint     string
 	WithTopology bool
+	AttachMode   string
+	BrickEndpoint string
 
 	PVCLister v1.PersistentVolumeClaimLister
 }
 
 func NewDriver(o *DriverOpts) *Driver {
+	attachMode := o.AttachMode
+	if attachMode == "" {
+		attachMode = "legacy"
+	}
+
 	d := &Driver{
-		name:         driverName,
-		fqVersion:    fmt.Sprintf("%s@%s", Version, version.Version),
-		endpoint:     o.Endpoint,
-		clusterID:    o.ClusterID,
-		withTopology: o.WithTopology,
-		pvcLister:    o.PVCLister,
+		name:          driverName,
+		fqVersion:     fmt.Sprintf("%s@%s", Version, version.Version),
+		endpoint:      o.Endpoint,
+		clusterID:     o.ClusterID,
+		withTopology:  o.WithTopology,
+		attachMode:    attachMode,
+		brickEndpoint: o.BrickEndpoint,
+		pvcLister:     o.PVCLister,
 	}
 
 	klog.Info("Driver: ", d.name)
@@ -189,6 +200,12 @@ func (d *Driver) GetVolumeCapabilityAccessModes() []*csi.VolumeCapability_Access
 	return d.vcap
 }
 
+// IsDirectMode returns true when the driver is configured to attach
+// volumes directly via Cinder + os-brick instead of through Nova.
+func (d *Driver) IsDirectMode() bool {
+	return d.attachMode == "direct"
+}
+
 func (d *Driver) SetupControllerService(clouds map[string]openstack.IOpenStack) {
 	klog.Info("Providing controller service")
 	d.cs = NewControllerServer(d, clouds)
@@ -196,7 +213,7 @@ func (d *Driver) SetupControllerService(clouds map[string]openstack.IOpenStack) 
 
 func (d *Driver) SetupNodeService(mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string) {
 	klog.Info("Providing node service")
-	d.ns = NewNodeServer(d, mount, metadata, opts, topologies)
+	d.ns = NewNodeServer(d, mount, metadata, opts, topologies, nil)
 }
 
 func (d *Driver) Run() {

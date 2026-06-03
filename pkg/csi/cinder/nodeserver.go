@@ -33,15 +33,25 @@ import (
 	sharedcsi "k8s.io/cloud-provider-openstack/pkg/csi"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder/openstack"
 	"k8s.io/cloud-provider-openstack/pkg/util/blockdevice"
+	"k8s.io/cloud-provider-openstack/pkg/util/brick"
 	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
 	"k8s.io/cloud-provider-openstack/pkg/util/mount"
 	mountutil "k8s.io/mount-utils"
+)
+
+const (
+	// connectionInfoFile is the name of the file used to persist Cinder
+	// connection_info under the staging target path.  It is written before
+	// the volume is mounted (so it lives on the host filesystem, hidden
+	// behind the mount) and read back after unmount during unstage.
+	connectionInfoFile = ".connection_info.json"
 )
 
 type nodeServer struct {
 	Driver     *Driver
 	Mount      mount.IMount
 	Metadata   metadata.IMetadata
+	Brick      brick.IConnector
 	Opts       openstack.BlockStorageOpts
 	Topologies map[string]string
 	csi.UnimplementedNodeServer
@@ -189,11 +199,37 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume Volume Capability must be provided")
 	}
 
+	var devicePath string
+	var err error
+
 	m := ns.Mount
-	// Do not trust the path provided by cinder, get the real path on node
-	devicePath, err := getDevicePath(volumeID, m)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Unable to find Device path for volume: %v", err)
+
+	if ns.Driver.IsDirectMode() {
+		// Direct mode: obtain the device path via the os-brick sidecar.
+		connectionInfo := req.GetPublishContext()["ConnectionInfo"]
+		if connectionInfo == "" {
+			return nil, status.Error(codes.InvalidArgument, "[NodeStageVolume] ConnectionInfo not found in publish context for direct attach mode")
+		}
+
+		devicePath, err = ns.Brick.ConnectVolume(ctx, connectionInfo)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "[NodeStageVolume] ConnectVolume failed: %v", err)
+		}
+		klog.V(4).Infof("NodeStageVolume: ConnectVolume returned device path %s for volume %s", devicePath, volumeID)
+
+		// Persist connection_info *before* mount so the file lives on the
+		// host filesystem underneath the mount point.  NodeUnstageVolume
+		// reads it back after unmounting.
+		connInfoPath := filepath.Join(stagingTarget, connectionInfoFile)
+		if writeErr := os.WriteFile(connInfoPath, []byte(connectionInfo), 0600); writeErr != nil {
+			return nil, status.Errorf(codes.Internal, "[NodeStageVolume] failed to persist connection info: %v", writeErr)
+		}
+	} else {
+		// Legacy mode: discover the device through the metadata service.
+		devicePath, err = getDevicePath(volumeID, m)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "Unable to find Device path for volume: %v", err)
+		}
 	}
 
 	if blk := volumeCapability.GetBlock(); blk != nil {
@@ -278,6 +314,45 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		return nil, status.Error(codes.InvalidArgument, "NodeUnstageVolume Staging Target Path must be provided")
 	}
 
+	if ns.Driver.IsDirectMode() {
+		// In direct mode we must read the persisted connection_info
+		// *before* unmounting because CleanupMountPoint removes the
+		// staging directory (and the hidden file underneath it).
+		connInfoPath := filepath.Join(stagingTargetPath, connectionInfoFile)
+		data, readErr := os.ReadFile(connInfoPath)
+
+		// Step 1: unmount the filesystem.
+		if err := ns.Mount.UnmountPath(stagingTargetPath); err != nil {
+			return nil, status.Errorf(codes.Internal, "Unmount of targetPath %s failed with error %v", stagingTargetPath, err)
+		}
+
+		// Step 2 & 5: if the connection_info file was missing the volume
+		// was already disconnected (idempotent).
+		if readErr != nil {
+			if os.IsNotExist(readErr) {
+				klog.V(4).Infof("NodeUnstageVolume: connection info file not found for volume %s, assuming already disconnected", volumeID)
+				return &csi.NodeUnstageVolumeResponse{}, nil
+			}
+			return nil, status.Errorf(codes.Internal, "[NodeUnstageVolume] failed to read connection info: %v", readErr)
+		}
+
+		// Step 3: ask the os-brick sidecar to disconnect the volume.
+		connectionInfo := string(data)
+		if err := ns.Brick.DisconnectVolume(ctx, connectionInfo); err != nil {
+			return nil, status.Errorf(codes.Internal, "[NodeUnstageVolume] DisconnectVolume failed for volume %s: %v", volumeID, err)
+		}
+		klog.V(4).Infof("NodeUnstageVolume: DisconnectVolume succeeded for volume %s", volumeID)
+
+		// Step 4: clean up the persisted file.  It may already have been
+		// removed by CleanupMountPoint; ignore ENOENT.
+		if removeErr := os.Remove(connInfoPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			klog.Warningf("NodeUnstageVolume: failed to remove connection info file %s: %v", connInfoPath, removeErr)
+		}
+
+		return &csi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	// Legacy mode: unmount only.
 	err := ns.Mount.UnmountPath(stagingTargetPath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Unmount of targetPath %s failed with error %v", stagingTargetPath, err)
