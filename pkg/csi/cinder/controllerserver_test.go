@@ -17,6 +17,9 @@ limitations under the License.
 package cinder
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -38,7 +41,7 @@ func fakeControllerServer() (*controllerServer, *openstack.OpenStackMock) {
 
 	cs := NewControllerServer(d, map[string]openstack.IOpenStack{
 		"": osmock,
-	})
+	}, nil)
 	return cs, osmock
 }
 
@@ -51,8 +54,33 @@ func fakeControllerServerWithMultipleRegions() (*controllerServer, *openstack.Op
 	cs := NewControllerServer(d, map[string]openstack.IOpenStack{
 		"":         osmock,
 		"region-x": osmockAlt,
-	})
+	}, nil)
 	return cs, osmock, osmockAlt
+}
+
+// mockConnectorPropertiesGetter is a testify mock for ConnectorPropertiesGetter.
+type mockConnectorPropertiesGetter struct {
+	mock.Mock
+}
+
+func (m *mockConnectorPropertiesGetter) GetConnectorProperties(ctx context.Context, nodeID string) (map[string]any, error) {
+	args := m.Called(ctx, nodeID)
+	if props := args.Get(0); props != nil {
+		return props.(map[string]any), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func fakeDirectControllerServer() (*controllerServer, *openstack.OpenStackMock, *mockConnectorPropertiesGetter) {
+	osmock := new(openstack.OpenStackMock)
+	connPropsMock := new(mockConnectorPropertiesGetter)
+
+	d := NewDriver(&DriverOpts{Endpoint: FakeEndpoint, ClusterID: FakeCluster, WithTopology: true, AttachMode: "direct"})
+
+	cs := NewControllerServer(d, map[string]openstack.IOpenStack{
+		"": osmock,
+	}, connPropsMock)
+	return cs, osmock, connPropsMock
 }
 
 // Test CreateVolume
@@ -1188,4 +1216,139 @@ func TestValidateVolumeCapabilities(t *testing.T) {
 	// assert
 	assert.Equal(expectedRes, actualRes)
 	assert.Equal(expectedRes2, actualRes2)
+}
+
+// --- Direct mode tests ---
+
+var FakeConnectorProperties = map[string]any{
+	"initiator": "iqn.2025-01.com.example:node1",
+	"host":      "node1",
+	"multipath": false,
+}
+
+var FakeConnectionInfoMap = map[string]any{
+	"driver_volume_type": "iscsi",
+	"data": map[string]any{
+		"target_iqn":    "iqn.2025-01.com.example:storage",
+		"target_portal": "10.0.0.1:3260",
+	},
+}
+
+// TestControllerPublishVolumeDirectMode verifies that in direct mode:
+// 1. Connector properties are read from the node annotation
+// 2. InitializeConnection is called with those properties
+// 3. ConnectionInfo JSON is returned in PublishContext
+func TestControllerPublishVolumeDirectMode(t *testing.T) {
+	fakeCs, osmock, connPropsMock := fakeDirectControllerServer()
+
+	connPropsMock.On("GetConnectorProperties", mock.Anything, FakeNodeID).Return(FakeConnectorProperties, nil)
+	osmock.On("InitializeConnection", FakeVolID, FakeConnectorProperties).Return(FakeConnectionInfoMap, nil)
+
+	assert := assert.New(t)
+
+	fakeReq := &csi.ControllerPublishVolumeRequest{
+		VolumeId: FakeVolID,
+		NodeId:   FakeNodeID,
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{},
+			},
+		},
+		Readonly: false,
+	}
+
+	actualRes, err := fakeCs.ControllerPublishVolume(FakeCtx, fakeReq)
+	assert.NoError(err)
+	assert.NotNil(actualRes)
+
+	// Verify ConnectionInfo is in PublishContext
+	connInfoJSON := actualRes.PublishContext["ConnectionInfo"]
+	assert.NotEmpty(connInfoJSON)
+
+	// Verify the JSON round-trips correctly
+	var parsed map[string]any
+	err = json.Unmarshal([]byte(connInfoJSON), &parsed)
+	assert.NoError(err)
+	assert.Equal("iscsi", parsed["driver_volume_type"])
+
+	// Verify the right calls were made
+	connPropsMock.AssertCalled(t, "GetConnectorProperties", mock.Anything, FakeNodeID)
+	osmock.AssertCalled(t, "InitializeConnection", FakeVolID, FakeConnectorProperties)
+
+	// Verify Nova calls were NOT made
+	osmock.AssertNotCalled(t, "AttachVolume")
+	osmock.AssertNotCalled(t, "GetInstanceByID")
+}
+
+// TestControllerPublishVolumeDirectModeConnPropsError verifies that
+// ControllerPublishVolume fails when connector properties are unavailable.
+func TestControllerPublishVolumeDirectModeConnPropsError(t *testing.T) {
+	fakeCs, _, connPropsMock := fakeDirectControllerServer()
+
+	connPropsMock.On("GetConnectorProperties", mock.Anything, FakeNodeID).Return(nil, fmt.Errorf("node not found"))
+
+	fakeReq := &csi.ControllerPublishVolumeRequest{
+		VolumeId: FakeVolID,
+		NodeId:   FakeNodeID,
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{},
+			},
+		},
+	}
+
+	_, err := fakeCs.ControllerPublishVolume(FakeCtx, fakeReq)
+	assert.Error(t, err)
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.Internal, st.Code())
+}
+
+// TestControllerUnpublishVolumeDirectMode verifies that in direct mode:
+// 1. Connector properties are read from the node annotation
+// 2. TerminateConnection is called
+// 3. No Nova detach calls are made
+func TestControllerUnpublishVolumeDirectMode(t *testing.T) {
+	fakeCs, osmock, connPropsMock := fakeDirectControllerServer()
+
+	connPropsMock.On("GetConnectorProperties", mock.Anything, FakeNodeID).Return(FakeConnectorProperties, nil)
+	osmock.On("TerminateConnection", FakeVolID, FakeConnectorProperties).Return(nil)
+
+	assert := assert.New(t)
+
+	fakeReq := &csi.ControllerUnpublishVolumeRequest{
+		VolumeId: FakeVolID,
+		NodeId:   FakeNodeID,
+	}
+
+	actualRes, err := fakeCs.ControllerUnpublishVolume(FakeCtx, fakeReq)
+	assert.NoError(err)
+	assert.Equal(&csi.ControllerUnpublishVolumeResponse{}, actualRes)
+
+	connPropsMock.AssertCalled(t, "GetConnectorProperties", mock.Anything, FakeNodeID)
+	osmock.AssertCalled(t, "TerminateConnection", FakeVolID, FakeConnectorProperties)
+
+	// Verify Nova calls were NOT made
+	osmock.AssertNotCalled(t, "DetachVolume")
+	osmock.AssertNotCalled(t, "GetInstanceByID")
+}
+
+// TestControllerUnpublishVolumeDirectModeConnPropsNotFound verifies that
+// ControllerUnpublishVolume returns success when connector properties
+// are unavailable (idempotent — node may already be gone).
+func TestControllerUnpublishVolumeDirectModeConnPropsNotFound(t *testing.T) {
+	fakeCs, _, connPropsMock := fakeDirectControllerServer()
+
+	connPropsMock.On("GetConnectorProperties", mock.Anything, FakeNodeID).Return(nil, fmt.Errorf("not found"))
+
+	assert := assert.New(t)
+
+	fakeReq := &csi.ControllerUnpublishVolumeRequest{
+		VolumeId: FakeVolID,
+		NodeId:   FakeNodeID,
+	}
+
+	actualRes, err := fakeCs.ControllerUnpublishVolume(FakeCtx, fakeReq)
+	assert.NoError(err)
+	assert.Equal(&csi.ControllerUnpublishVolumeResponse{}, actualRes)
 }

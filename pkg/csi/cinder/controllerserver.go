@@ -18,6 +18,7 @@ package cinder
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -42,8 +43,9 @@ import (
 )
 
 type controllerServer struct {
-	Driver *Driver
-	Clouds map[string]openstack.IOpenStack
+	Driver    *Driver
+	Clouds    map[string]openstack.IOpenStack
+	ConnProps ConnectorPropertiesGetter
 	csi.UnimplementedControllerServer
 }
 
@@ -321,6 +323,34 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] get volume failed with error %v", err)
 	}
 
+	// Direct mode: use Cinder InitializeConnection instead of Nova attach.
+	if cs.Driver.IsDirectMode() {
+		connProps, err := cs.ConnProps.GetConnectorProperties(ctx, instanceID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] failed to get connector properties for node %s: %v", instanceID, err)
+		}
+
+		connectionInfo, err := cloud.InitializeConnection(ctx, volumeID, connProps)
+		if err != nil {
+			klog.Errorf("Failed to InitializeConnection: %v", err)
+			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] InitializeConnection failed for volume %s: %v", volumeID, err)
+		}
+
+		connectionInfoJSON, err := json.Marshal(connectionInfo)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] failed to marshal connection info: %v", err)
+		}
+
+		klog.V(4).Infof("ControllerPublishVolume %s on %s is successful (direct mode)", volumeID, instanceID)
+
+		return &csi.ControllerPublishVolumeResponse{
+			PublishContext: map[string]string{
+				"ConnectionInfo": string(connectionInfoJSON),
+			},
+		}, nil
+	}
+
+	// Legacy mode: attach via Nova.
 	_, err = cloud.GetInstanceByID(ctx, instanceID)
 	if err != nil {
 		if cpoerrors.IsNotFound(err) {
@@ -376,6 +406,30 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "[ControllerUnpublishVolume] Volume ID must be provided")
 	}
+
+	// Direct mode: use Cinder TerminateConnection instead of Nova detach.
+	if cs.Driver.IsDirectMode() {
+		connProps, err := cs.ConnProps.GetConnectorProperties(ctx, instanceID)
+		if err != nil {
+			klog.V(3).Infof("ControllerUnpublishVolume assuming volume %s is detached, because connector properties for node %s not available: %v", volumeID, instanceID, err)
+			return &csi.ControllerUnpublishVolumeResponse{}, nil
+		}
+
+		err = cloud.TerminateConnection(ctx, volumeID, connProps)
+		if err != nil {
+			if cpoerrors.IsNotFound(err) {
+				klog.V(3).Infof("ControllerUnpublishVolume assuming volume %s is detached, because it does not exist", volumeID)
+				return &csi.ControllerUnpublishVolumeResponse{}, nil
+			}
+			klog.Errorf("Failed to TerminateConnection: %v", err)
+			return nil, status.Errorf(codes.Internal, "[ControllerUnpublishVolume] TerminateConnection failed for volume %s: %v", volumeID, err)
+		}
+
+		klog.V(4).Infof("ControllerUnpublishVolume %s on %s (direct mode)", volumeID, instanceID)
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
+	}
+
+	// Legacy mode: detach via Nova.
 	_, err := cloud.GetInstanceByID(ctx, instanceID)
 	if err != nil {
 		if cpoerrors.IsNotFound(err) {

@@ -140,7 +140,13 @@ func handle() {
 			}
 		}
 
-		d.SetupControllerService(clouds)
+		var connProps cinder.ConnectorPropertiesGetter
+		if attachMode == "direct" {
+			kubeClient := csi.GetKubeClient()
+			connProps = cinder.NewKubeConnectorPropertiesGetter(kubeClient)
+		}
+
+		d.SetupControllerService(clouds, connProps)
 	}
 
 	if provideNodeService {

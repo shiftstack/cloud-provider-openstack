@@ -206,9 +206,9 @@ func (d *Driver) IsDirectMode() bool {
 	return d.attachMode == "direct"
 }
 
-func (d *Driver) SetupControllerService(clouds map[string]openstack.IOpenStack) {
+func (d *Driver) SetupControllerService(clouds map[string]openstack.IOpenStack, connProps ConnectorPropertiesGetter) {
 	klog.Info("Providing controller service")
-	d.cs = NewControllerServer(d, clouds)
+	d.cs = NewControllerServer(d, clouds, connProps)
 }
 
 func (d *Driver) SetupNodeService(mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string) {

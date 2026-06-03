@@ -111,6 +111,34 @@ func GetAZFromTopology(topologyKey string, requirement *csi.TopologyRequirement)
 	return zone
 }
 
+// GetKubeClient creates a Kubernetes clientset using the configured
+// kubeconfig/master flags and environment.  Used by the controller
+// (for reading connector properties annotations) and by the node
+// (for patching its own node annotation).
+func GetKubeClient() kubernetes.Interface {
+	kubeconfigEnv := os.Getenv("KUBECONFIG")
+	kc := kubeconfig
+	if kubeconfigEnv != "" {
+		klog.Infof("Found KUBECONFIG environment variable set, using that..")
+		kc = kubeconfigEnv
+	}
+
+	config, err := clientcmd.BuildConfigFromFlags(master, kc)
+	if err != nil {
+		klog.Fatalf("Failed to create config: %v", err)
+	}
+	config.QPS = kubeAPIQPS
+	config.Burst = kubeAPIBurst
+	config.ContentType = runtime.ContentTypeProtobuf
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		klog.Fatalf("Failed to create client: %v", err)
+	}
+
+	return clientset
+}
+
 func GetPVCLister() v1.PersistentVolumeClaimLister {
 	if !pvcAnnotations {
 		return nil
