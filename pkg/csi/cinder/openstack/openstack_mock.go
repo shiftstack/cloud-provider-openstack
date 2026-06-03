@@ -529,3 +529,40 @@ func (_m *OpenStackMock) GetBlockStorageOpts() BlockStorageOpts {
 func (_m *OpenStackMock) ResolveVolumeListToUUIDs(ctx context.Context, v string) (string, error) {
 	return v, nil
 }
+
+// InitializeConnection provides a mock function with given fields: volumeID, connectorProperties
+func (_m *OpenStackMock) InitializeConnection(ctx context.Context, volumeID string, connectorProperties map[string]any) (map[string]any, error) {
+	ret := _m.Called(volumeID, connectorProperties)
+
+	var r0 map[string]any
+	if rf, ok := ret.Get(0).(func(string, map[string]any) map[string]any); ok {
+		r0 = rf(volumeID, connectorProperties)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]any)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(string, map[string]any) error); ok {
+		r1 = rf(volumeID, connectorProperties)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// TerminateConnection provides a mock function with given fields: volumeID, connectorProperties
+func (_m *OpenStackMock) TerminateConnection(ctx context.Context, volumeID string, connectorProperties map[string]any) error {
+	ret := _m.Called(volumeID, connectorProperties)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, map[string]any) error); ok {
+		r0 = rf(volumeID, connectorProperties)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
