@@ -44,6 +44,8 @@ var (
 	provideNodeService       bool
 	noClient                 bool
 	withTopology             bool
+	attachMode               string
+	brickEndpoint            string
 )
 
 func main() {
@@ -101,6 +103,9 @@ func main() {
 	cmd.PersistentFlags().BoolVar(&noClient, "node-service-no-os-client", false, "If set to true then the CSI driver node service will not use the OpenStack client (default: false)")
 	cmd.PersistentFlags().MarkDeprecated("node-service-no-os-client", "This flag is deprecated and will be removed in the future. Node service do not use OpenStack credentials anymore.") //nolint:errcheck
 
+	cmd.PersistentFlags().StringVar(&attachMode, "attach-mode", "legacy", "Volume attach mode: 'legacy' uses Nova attach/detach, 'direct' uses Cinder InitializeConnection with os-brick sidecar for bare-metal nodes")
+	cmd.PersistentFlags().StringVar(&brickEndpoint, "brick-endpoint", "unix:///var/run/osbrick/osbrick.sock", "Endpoint of the os-brick gRPC sidecar (only used when --attach-mode=direct)")
+
 	openstack.AddExtraFlags(pflag.CommandLine)
 
 	code := cli.Run(cmd)
@@ -109,11 +114,17 @@ func main() {
 
 func handle() {
 	// Initialize cloud
+	if attachMode != "legacy" && attachMode != "direct" {
+		klog.Fatalf("Invalid --attach-mode %q: must be 'legacy' or 'direct'", attachMode)
+	}
+
 	d := cinder.NewDriver(&cinder.DriverOpts{
-		Endpoint:     endpoint,
-		ClusterID:    cluster,
-		PVCLister:    csi.GetPVCLister(),
-		WithTopology: withTopology,
+		Endpoint:      endpoint,
+		ClusterID:     cluster,
+		PVCLister:     csi.GetPVCLister(),
+		WithTopology:  withTopology,
+		AttachMode:    attachMode,
+		BrickEndpoint: brickEndpoint,
 	})
 
 	openstack.InitOpenStackProvider(cloudConfig, httpEndpoint)
