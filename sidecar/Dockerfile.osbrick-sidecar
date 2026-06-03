@@ -1,0 +1,77 @@
+# Copyright 2025 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Dockerfile for the os-brick gRPC sidecar.
+#
+# This container wraps the Python os-brick library behind a gRPC service
+# that the Cinder CSI driver calls for volume attach/detach operations
+# on bare-metal nodes.
+#
+# Build:
+#   docker build -f sidecar/Dockerfile.osbrick-sidecar -t osbrick-sidecar .
+#
+# The build context must be the repository root so the proto file is
+# accessible.
+
+FROM python:3.11-slim AS builder
+
+# Install system packages required by os-brick at build time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Install Python dependencies first (layer caching).
+COPY sidecar/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Generate Python gRPC stubs from the proto file.
+COPY proto/osbrick/v1/connector.proto /proto/connector.proto
+RUN python -m grpc_tools.protoc \
+    --proto_path=/proto \
+    --python_out=/build/gen \
+    --grpc_python_out=/build/gen \
+    /proto/connector.proto
+
+# ---
+
+FROM python:3.11-slim
+
+# Install system packages required at runtime for storage operations.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    open-iscsi \
+    multipath-tools \
+    sg3-utils \
+    sysfsutils \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy installed packages from builder.
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy generated gRPC stubs.
+COPY --from=builder /build/gen/ /app/osbrick/gen/
+
+# Copy application source.
+COPY sidecar/osbrick/ /app/osbrick/
+
+# Ensure the gen directory has an __init__.py.
+RUN touch /app/osbrick/gen/__init__.py
+
+ENTRYPOINT ["python", "-m", "osbrick.main"]
