@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/cloud-provider-openstack/pkg/csi"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder/openstack"
@@ -162,7 +163,19 @@ func handle() {
 		// Initialize Metadata
 		metadata := metadata.GetMetadataProvider(cfg.Metadata.SearchOrder)
 
-		d.SetupNodeService(mount, metadata, cfg.BlockStorage, additionalTopologies)
+		// In direct mode, create a Kubernetes client for the node to
+		// store connector properties in its own node annotation.
+		var nodeKubeClient kubernetes.Interface
+		var nodeName string
+		if attachMode == "direct" {
+			nodeKubeClient = csi.GetKubeClient()
+			nodeName = os.Getenv("KUBE_NODE_NAME")
+			if nodeName == "" {
+				klog.Fatal("KUBE_NODE_NAME environment variable must be set in direct attach mode")
+			}
+		}
+
+		d.SetupNodeService(mount, metadata, cfg.BlockStorage, additionalTopologies, nodeKubeClient, nodeName)
 	}
 
 	d.Run()

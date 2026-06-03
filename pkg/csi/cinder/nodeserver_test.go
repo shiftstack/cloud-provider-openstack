@@ -17,6 +17,7 @@ limitations under the License.
 package cinder
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	fakekube "k8s.io/client-go/kubernetes/fake"
 	sharedcsi "k8s.io/cloud-provider-openstack/pkg/csi"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder/openstack"
 	"k8s.io/cloud-provider-openstack/pkg/util/brick"
@@ -52,7 +56,7 @@ func fakeNodeServer() (*nodeServer, *openstack.OpenStackMock, *mount.MountMock, 
 		NodeVolumeAttachLimit: maxVolumesPerNode,
 	}
 
-	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, nil)
+	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, nil, nil, "")
 
 	return fakeNs, osmock, mmock, metamock
 }
@@ -425,7 +429,7 @@ func fakeDirectNodeServer() (*nodeServer, *openstack.OpenStackMock, *mount.Mount
 		NodeVolumeAttachLimit: maxVolumesPerNode,
 	}
 
-	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock)
+	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock, nil, "")
 
 	return fakeNs, osmock, mmock, metamock, brickmock
 }
@@ -565,4 +569,77 @@ func TestNodeUnstageVolumeDirectModeIdempotent(t *testing.T) {
 
 	// DisconnectVolume must NOT have been called
 	brickmock.AssertNotCalled(t, "DisconnectVolume")
+}
+
+// TestNodeGetInfoDirectMode verifies that NodeGetInfo in direct mode:
+// 1. Calls GetConnectorProperties on the brick sidecar
+// 2. Stores the properties as JSON in the Kubernetes node annotation
+// 3. Logs the stored properties
+func TestNodeGetInfoDirectMode(t *testing.T) {
+	d := NewDriver(&DriverOpts{Endpoint: FakeEndpoint, ClusterID: FakeCluster, WithTopology: true, AttachMode: "direct"})
+
+	osmock := new(openstack.OpenStackMock)
+	openstack.OsInstances = map[string]openstack.IOpenStack{
+		"": osmock,
+	}
+
+	mmock := new(mount.MountMock)
+	mount.MInstance = mmock
+
+	metamock := new(metadata.MetadataMock)
+	metadata.MetadataService = metamock
+
+	brickmock := new(brick.MockConnector)
+
+	// Create a fake Kubernetes node
+	fakeNodeName := "test-node"
+	fakeNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fakeNodeName,
+		},
+	}
+	fakeClient := fakekube.NewSimpleClientset(fakeNode)
+
+	opts := openstack.BlockStorageOpts{
+		NodeVolumeAttachLimit: maxVolumesPerNode,
+	}
+
+	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock, fakeClient, fakeNodeName)
+
+	// Set up mocks
+	metamock.On("GetInstanceID").Return(FakeNodeID, nil)
+	metamock.On("GetAvailabilityZone").Return(FakeAvailability, nil)
+
+	fakeProps := &brick.ConnectorProperties{
+		Initiator: "iqn.2025-01.com.example:node1",
+		Host:      "test-node",
+		Multipath: false,
+	}
+	brickmock.On("GetConnectorProperties", FakeCtx).Return(fakeProps, nil)
+
+	assert := assert.New(t)
+
+	// Invoke NodeGetInfo
+	res, err := fakeNs.NodeGetInfo(FakeCtx, &csi.NodeGetInfoRequest{})
+	assert.NoError(err)
+	assert.NotNil(res)
+	assert.Equal(FakeNodeID, res.NodeId)
+
+	// Verify connector properties were stored
+	brickmock.AssertCalled(t, "GetConnectorProperties", FakeCtx)
+
+	// Read back the node annotation
+	updatedNode, err := fakeClient.CoreV1().Nodes().Get(FakeCtx, fakeNodeName, metav1.GetOptions{})
+	assert.NoError(err)
+
+	propsJSON, ok := updatedNode.Annotations[ConnectorPropertiesAnnotation]
+	assert.True(ok, "connector properties annotation should be set")
+
+	// Verify the annotation contains the expected JSON
+	var props map[string]any
+	err = json.Unmarshal([]byte(propsJSON), &props)
+	assert.NoError(err)
+	assert.Equal("iqn.2025-01.com.example:node1", props["initiator"])
+	assert.Equal("test-node", props["host"])
+	assert.Equal(false, props["multipath"])
 }

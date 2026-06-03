@@ -22,6 +22,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/listers/core/v1"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder/openstack"
 	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
@@ -211,9 +212,9 @@ func (d *Driver) SetupControllerService(clouds map[string]openstack.IOpenStack, 
 	d.cs = NewControllerServer(d, clouds, connProps)
 }
 
-func (d *Driver) SetupNodeService(mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string) {
+func (d *Driver) SetupNodeService(mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string, kubeClient kubernetes.Interface, nodeName string) {
 	klog.Info("Providing node service")
-	d.ns = NewNodeServer(d, mount, metadata, opts, topologies, nil)
+	d.ns = NewNodeServer(d, mount, metadata, opts, topologies, nil, kubeClient, nodeName)
 }
 
 func (d *Driver) Run() {

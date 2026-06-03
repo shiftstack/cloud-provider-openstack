@@ -18,6 +18,7 @@ package cinder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,9 @@ import (
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	utilpath "k8s.io/utils/path"
 
@@ -52,6 +56,8 @@ type nodeServer struct {
 	Mount      mount.IMount
 	Metadata   metadata.IMetadata
 	Brick      brick.IConnector
+	KubeClient kubernetes.Interface
+	NodeName   string
 	Opts       openstack.BlockStorageOpts
 	Topologies map[string]string
 	csi.UnimplementedNodeServer
@@ -367,6 +373,15 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 		return nil, status.Errorf(codes.Internal, "[NodeGetInfo] unable to retrieve instance id of node %v", err)
 	}
 
+	// In direct mode, store connector properties in a Kubernetes node
+	// annotation so the controller can read them for
+	// InitializeConnection / TerminateConnection.
+	if ns.Driver.IsDirectMode() && ns.Brick != nil && ns.KubeClient != nil {
+		if err := ns.storeConnectorProperties(ctx, nodeID); err != nil {
+			return nil, err
+		}
+	}
+
 	nodeInfo := &csi.NodeGetInfoResponse{
 		NodeId:            nodeID,
 		MaxVolumesPerNode: ns.Opts.NodeVolumeAttachLimit,
@@ -482,6 +497,57 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 		return nil, status.Errorf(codes.Internal, "Could not resize volume %q: %v", volumeID, err)
 	}
 	return &csi.NodeExpandVolumeResponse{}, nil
+}
+
+// storeConnectorProperties retrieves the host connector properties from
+// the os-brick sidecar and stores them as a JSON annotation on the
+// Kubernetes Node object.  The controller reads this annotation in
+// ControllerPublishVolume / ControllerUnpublishVolume.
+func (ns *nodeServer) storeConnectorProperties(ctx context.Context, nodeID string) error {
+	// Step 1: get connector properties from os-brick sidecar.
+	props, err := ns.Brick.GetConnectorProperties(ctx)
+	if err != nil {
+		return status.Errorf(codes.Internal, "[NodeGetInfo] failed to get connector properties: %v", err)
+	}
+
+	// Step 2: convert to map and marshal to JSON.
+	propsMap := map[string]any{
+		"initiator": props.Initiator,
+		"host":      props.Host,
+		"multipath": props.Multipath,
+	}
+	if len(props.Wwpns) > 0 {
+		propsMap["wwpns"] = props.Wwpns
+	}
+	for k, v := range props.Extras {
+		propsMap[k] = v
+	}
+
+	propsJSON, err := json.Marshal(propsMap)
+	if err != nil {
+		return status.Errorf(codes.Internal, "[NodeGetInfo] failed to marshal connector properties: %v", err)
+	}
+
+	// Step 3: patch the Kubernetes node annotation.
+	patchPayload, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]any{
+				ConnectorPropertiesAnnotation: string(propsJSON),
+			},
+		},
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "[NodeGetInfo] failed to build patch: %v", err)
+	}
+
+	_, err = ns.KubeClient.CoreV1().Nodes().Patch(ctx, ns.NodeName, types.MergePatchType, patchPayload, metav1.PatchOptions{})
+	if err != nil {
+		return status.Errorf(codes.Internal, "[NodeGetInfo] failed to patch node %s with connector properties: %v", ns.NodeName, err)
+	}
+
+	// Step 4: log the stored connector properties.
+	klog.Infof("NodeGetInfo: stored connector properties on node %s for CSI nodeID %s: %s", ns.NodeName, nodeID, string(propsJSON))
+	return nil
 }
 
 func getDevicePath(volumeID string, m mount.IMount) (string, error) {
