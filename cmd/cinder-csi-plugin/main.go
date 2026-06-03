@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/cloud-provider-openstack/pkg/csi"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder"
+	"k8s.io/cloud-provider-openstack/pkg/util/brick"
 	"k8s.io/cloud-provider-openstack/pkg/csi/cinder/openstack"
 	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
 	"k8s.io/cloud-provider-openstack/pkg/util/mount"
@@ -164,18 +165,27 @@ func handle() {
 		metadata := metadata.GetMetadataProvider(cfg.Metadata.SearchOrder)
 
 		// In direct mode, create a Kubernetes client for the node to
-		// store connector properties in its own node annotation.
+		// store connector properties in its own node annotation, and
+		// create the os-brick gRPC client for volume operations.
 		var nodeKubeClient kubernetes.Interface
 		var nodeName string
+		var brickClient brick.IConnector
 		if attachMode == "direct" {
 			nodeKubeClient = csi.GetKubeClient()
 			nodeName = os.Getenv("KUBE_NODE_NAME")
 			if nodeName == "" {
 				klog.Fatal("KUBE_NODE_NAME environment variable must be set in direct attach mode")
 			}
+
+			var err2 error
+			brickClient, err2 = brick.NewGRPCConnector(brickEndpoint)
+			if err2 != nil {
+				klog.Fatalf("Failed to connect to os-brick sidecar at %s: %v", brickEndpoint, err2)
+			}
+			klog.Infof("Connected to os-brick sidecar at %s", brickEndpoint)
 		}
 
-		d.SetupNodeService(mount, metadata, cfg.BlockStorage, additionalTopologies, nodeKubeClient, nodeName)
+		d.SetupNodeService(mount, metadata, cfg.BlockStorage, additionalTopologies, brickClient, nodeKubeClient, nodeName)
 	}
 
 	d.Run()
