@@ -126,6 +126,11 @@ spec:
               mountPropagation: "Bidirectional"
             - name: host-iscsi
               mountPath: /etc/iscsi
+            # Ceph/RBD: mount the host's Ceph config and keyring so
+            # os-brick can connect RBD volumes.
+            - name: host-ceph
+              mountPath: /etc/ceph
+              readOnly: true
       volumes:
         - name: socket-dir
           hostPath:
@@ -163,6 +168,10 @@ spec:
         - name: host-iscsi
           hostPath:
             path: /etc/iscsi
+            type: DirectoryOrCreate
+        - name: host-ceph
+          hostPath:
+            path: /etc/ceph
             type: DirectoryOrCreate
         # - name: cacert
         #   hostPath:

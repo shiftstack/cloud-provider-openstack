@@ -58,6 +58,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sg3-utils \
     sysfsutils \
     sudo \
+    # Ceph/RBD support
+    ceph-common \
+    python3-rbd \
+    python3-rados \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
