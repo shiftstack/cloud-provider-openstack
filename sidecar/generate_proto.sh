@@ -41,5 +41,11 @@ python -m grpc_tools.protoc \
   --grpc_python_out="${OUT_DIR}" \
   "${PROTO_FILE}"
 
+# Fix the import in the generated gRPC stub: protoc generates a bare
+# "import connector_pb2" which doesn't work when the file lives inside
+# the osbrick.gen package.
+sed -i 's/^import connector_pb2/from osbrick.gen import connector_pb2/' \
+  "${OUT_DIR}/connector_pb2_grpc.py"
+
 echo "Generated files:"
 ls -la "${OUT_DIR}"/connector_pb2*.py

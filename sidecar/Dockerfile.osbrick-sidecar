@@ -44,7 +44,8 @@ RUN mkdir -p /build/gen && python -m grpc_tools.protoc \
     --proto_path=/proto \
     --python_out=/build/gen \
     --grpc_python_out=/build/gen \
-    /proto/connector.proto
+    /proto/connector.proto \
+    && sed -i 's/^import connector_pb2/from osbrick.gen import connector_pb2/' /build/gen/connector_pb2_grpc.py
 
 # ---
 
