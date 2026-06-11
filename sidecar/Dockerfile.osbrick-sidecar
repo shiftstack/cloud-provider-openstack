@@ -40,7 +40,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Generate Python gRPC stubs from the proto file.
 COPY proto/osbrick/v1/connector.proto /proto/connector.proto
-RUN python -m grpc_tools.protoc \
+RUN mkdir -p /build/gen && python -m grpc_tools.protoc \
     --proto_path=/proto \
     --python_out=/build/gen \
     --grpc_python_out=/build/gen \
