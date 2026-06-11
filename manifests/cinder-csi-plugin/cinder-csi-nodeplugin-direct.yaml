@@ -126,9 +126,11 @@ spec:
               mountPropagation: "Bidirectional"
             - name: host-iscsi
               mountPath: /etc/iscsi
-            # Ceph/RBD: mount the host's Ceph config and keyring so
-            # os-brick can connect RBD volumes.
-            - name: host-ceph
+            # Ceph/RBD: mount Ceph config and keyring so os-brick
+            # can connect RBD volumes.  Create the secret with:
+            #   kubectl -n kube-system create secret generic ceph-config \
+            #     --from-file=ceph.conf --from-file=ceph.client.cinder.keyring
+            - name: ceph-config
               mountPath: /etc/ceph
               readOnly: true
       volumes:
@@ -169,10 +171,10 @@ spec:
           hostPath:
             path: /etc/iscsi
             type: DirectoryOrCreate
-        - name: host-ceph
-          hostPath:
-            path: /etc/ceph
-            type: DirectoryOrCreate
+        - name: ceph-config
+          secret:
+            secretName: ceph-config
+            optional: true
         # - name: cacert
         #   hostPath:
         #     path: /etc/cacert
