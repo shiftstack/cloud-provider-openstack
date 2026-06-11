@@ -46,8 +46,9 @@ def _make_test_server():
 
 
 class TestGetConnectorProperties(unittest.TestCase):
+    @mock.patch("osbrick.server._get_my_ip", return_value="10.0.0.1")
     @mock.patch("osbrick.server.brick_connector.get_connector_properties")
-    def test_returns_properties(self, mock_get_props):
+    def test_returns_properties(self, mock_get_props, mock_ip):
         mock_get_props.return_value = {
             "initiator": "iqn.2025-01.com.example:node1",
             "wwpns": ["50060b0000c26040"],

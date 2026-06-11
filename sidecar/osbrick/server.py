@@ -21,6 +21,7 @@ delegates to the corresponding os-brick function.
 
 import json
 import logging
+import socket
 
 import grpc
 from os_brick.initiator import connector as brick_connector
@@ -35,14 +36,34 @@ LOG = logging.getLogger(__name__)
 ROOT_HELPER = "sudo"
 
 
+def _get_my_ip():
+    """Return the IP address of the host.
+
+    Uses the OSBRICK_MY_IP environment variable if set, otherwise
+    resolves the hostname.  os-brick needs this for iSCSI initiator
+    registration and connection tracking.
+    """
+    import os
+    ip = os.environ.get("OSBRICK_MY_IP")
+    if ip:
+        return ip
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except socket.gaierror:
+        LOG.warning("Could not resolve hostname, falling back to 127.0.0.1")
+        return "127.0.0.1"
+
+
 class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
     """Maps gRPC calls to os-brick connector operations."""
 
     def GetConnectorProperties(self, request, context):
         """Return host initiator information from os-brick."""
         try:
+            my_ip = _get_my_ip()
             props = brick_connector.get_connector_properties(
                 ROOT_HELPER,
+                my_ip,
                 multipath=True,
                 enforce_multipath=False,
             )
