@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
@@ -30,6 +31,7 @@ import (
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	utilpath "k8s.io/utils/path"
@@ -404,8 +406,11 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 
 	// In direct mode, store connector properties in a Kubernetes node
 	// annotation so the controller can read them for AttachmentCreate.
+	// Retry with backoff if the os-brick sidecar is not ready yet —
+	// this is common during initial pod startup when the sidecar
+	// container hasn't created its socket yet.
 	if ns.Driver.IsDirectMode() && ns.Brick != nil && ns.KubeClient != nil {
-		if err := ns.storeConnectorProperties(ctx, nodeID); err != nil {
+		if err := ns.storeConnectorPropertiesWithRetry(ctx, nodeID); err != nil {
 			return nil, err
 		}
 	}
@@ -525,6 +530,31 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 		return nil, status.Errorf(codes.Internal, "Could not resize volume %q: %v", volumeID, err)
 	}
 	return &csi.NodeExpandVolumeResponse{}, nil
+}
+
+// storeConnectorPropertiesWithRetry wraps storeConnectorProperties with
+// a retry loop to handle the common case where the os-brick sidecar
+// container hasn't started yet during initial pod startup.
+func (ns *nodeServer) storeConnectorPropertiesWithRetry(ctx context.Context, nodeID string) error {
+	backoff := wait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   1.5,
+		Steps:    10, // ~2s, 3s, 4.5s, 6.75s, ... ≈ 75s total
+	}
+
+	var lastErr error
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		lastErr = ns.storeConnectorProperties(ctx, nodeID)
+		if lastErr != nil {
+			klog.Warningf("NodeGetInfo: waiting for os-brick sidecar: %v", lastErr)
+			return false, nil // retry
+		}
+		return true, nil // success
+	})
+	if err != nil {
+		return status.Errorf(codes.Internal, "[NodeGetInfo] os-brick sidecar not available after retries: %v", lastErr)
+	}
+	return nil
 }
 
 // storeConnectorProperties retrieves the host connector properties from
