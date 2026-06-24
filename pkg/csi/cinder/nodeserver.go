@@ -49,6 +49,12 @@ const (
 	// the volume is mounted (so it lives on the host filesystem, hidden
 	// behind the mount) and read back after unmount during unstage.
 	connectionInfoFile = ".connection_info.json"
+
+	// attachmentIDFile is the name of the file used to persist the Cinder
+	// attachment ID under the staging target path.  It is written alongside
+	// the connection_info file for potential future use in unstage error
+	// recovery.
+	attachmentIDFile = ".attachment_id"
 )
 
 type nodeServer struct {
@@ -56,6 +62,7 @@ type nodeServer struct {
 	Mount      mount.IMount
 	Metadata   metadata.IMetadata
 	Brick      brick.IConnector
+	Cloud      openstack.IOpenStack // only set in direct mode, for AttachmentComplete
 	KubeClient kubernetes.Interface
 	NodeName   string
 	Opts       openstack.BlockStorageOpts
@@ -223,12 +230,34 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 		}
 		klog.V(4).Infof("NodeStageVolume: ConnectVolume returned device path %s for volume %s", devicePath, volumeID)
 
+		// Mark the attachment as "in-use" in Cinder (best-effort).
+		attachmentID := req.GetPublishContext()["AttachmentID"]
+		if ns.Cloud != nil && attachmentID != "" {
+			if completeErr := ns.Cloud.AttachmentComplete(ctx, attachmentID); completeErr != nil {
+				// AttachmentComplete is optional (requires microversion
+				// 3.44).  Log a warning but do not fail — the volume is
+				// already connected and usable.
+				klog.Warningf("NodeStageVolume: AttachmentComplete failed for attachment %s (volume %s), continuing: %v", attachmentID, volumeID, completeErr)
+			} else {
+				klog.V(4).Infof("NodeStageVolume: AttachmentComplete succeeded for attachment %s (volume %s)", attachmentID, volumeID)
+			}
+		}
+
 		// Persist connection_info *before* mount so the file lives on the
 		// host filesystem underneath the mount point.  NodeUnstageVolume
 		// reads it back after unmounting.
 		connInfoPath := filepath.Join(stagingTarget, connectionInfoFile)
 		if writeErr := os.WriteFile(connInfoPath, []byte(connectionInfo), 0600); writeErr != nil {
 			return nil, status.Errorf(codes.Internal, "[NodeStageVolume] failed to persist connection info: %v", writeErr)
+		}
+
+		// Persist attachment ID for potential future use in unstage
+		// error recovery.
+		if attachmentID != "" {
+			attachIDPath := filepath.Join(stagingTarget, attachmentIDFile)
+			if writeErr := os.WriteFile(attachIDPath, []byte(attachmentID), 0600); writeErr != nil {
+				klog.Warningf("NodeStageVolume: failed to persist attachment ID: %v", writeErr)
+			}
 		}
 	} else {
 		// Legacy mode: discover the device through the metadata service.
@@ -374,8 +403,7 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 	}
 
 	// In direct mode, store connector properties in a Kubernetes node
-	// annotation so the controller can read them for
-	// InitializeConnection / TerminateConnection.
+	// annotation so the controller can read them for AttachmentCreate.
 	if ns.Driver.IsDirectMode() && ns.Brick != nil && ns.KubeClient != nil {
 		if err := ns.storeConnectorProperties(ctx, nodeID); err != nil {
 			return nil, err

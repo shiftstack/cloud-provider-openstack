@@ -34,7 +34,7 @@ const (
 	// ConnectorPropertiesAnnotation is the node annotation key where the
 	// node plugin stores its os-brick connector properties (JSON).  The
 	// controller reads this annotation to pass connector properties to
-	// Cinder's InitializeConnection / TerminateConnection API calls.
+	// Cinder's Attachment API (AttachmentCreate).
 	ConnectorPropertiesAnnotation = "cinder.csi.openstack.org/connector-properties"
 )
 

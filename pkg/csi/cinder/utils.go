@@ -60,7 +60,7 @@ func NewIdentityServer(d *Driver) *identityServer {
 	}
 }
 
-func NewNodeServer(d *Driver, mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string, connector brick.IConnector, kubeClient kubernetes.Interface, nodeName string) *nodeServer {
+func NewNodeServer(d *Driver, mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string, connector brick.IConnector, kubeClient kubernetes.Interface, nodeName string, cloud openstack.IOpenStack) *nodeServer {
 	if opts.NodeVolumeAttachLimit < 0 || opts.NodeVolumeAttachLimit > maxVolumesPerNode {
 		opts.NodeVolumeAttachLimit = maxVolumesPerNode
 	}
@@ -70,6 +70,7 @@ func NewNodeServer(d *Driver, mount mount.IMount, metadata metadata.IMetadata, o
 		Mount:      mount,
 		Metadata:   metadata,
 		Brick:      connector,
+		Cloud:      cloud,
 		KubeClient: kubeClient,
 		NodeName:   nodeName,
 		Topologies: topologies,

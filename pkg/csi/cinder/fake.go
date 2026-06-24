@@ -109,6 +109,8 @@ var FakeBackupListEmpty = []backups.Backup{}
 
 var FakeInstanceID = "321a8b81-3660-43e5-bab8-6470b65ee4e8"
 
+var FakeAttachmentID = "fake-attachment-id"
+
 const FakeMaxVolume int64 = 256
 
 var FakeFsStats = &mount.DeviceStats{

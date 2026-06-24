@@ -122,7 +122,7 @@ spec:
               mountPath: /sys
               readOnly: true
             - name: host-run
-              mountPath: /run
+              mountPath: /host/run
               mountPropagation: "Bidirectional"
             - name: host-iscsi
               mountPath: /etc/iscsi

@@ -213,9 +213,9 @@ func (d *Driver) SetupControllerService(clouds map[string]openstack.IOpenStack, 
 	d.cs = NewControllerServer(d, clouds, connProps)
 }
 
-func (d *Driver) SetupNodeService(mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string, connector brick.IConnector, kubeClient kubernetes.Interface, nodeName string) {
+func (d *Driver) SetupNodeService(mount mount.IMount, metadata metadata.IMetadata, opts openstack.BlockStorageOpts, topologies map[string]string, connector brick.IConnector, kubeClient kubernetes.Interface, nodeName string, cloud openstack.IOpenStack) {
 	klog.Info("Providing node service")
-	d.ns = NewNodeServer(d, mount, metadata, opts, topologies, connector, kubeClient, nodeName)
+	d.ns = NewNodeServer(d, mount, metadata, opts, topologies, connector, kubeClient, nodeName, cloud)
 }
 
 func (d *Driver) Run() {

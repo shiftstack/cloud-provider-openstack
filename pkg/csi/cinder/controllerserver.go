@@ -323,17 +323,17 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] get volume failed with error %v", err)
 	}
 
-	// Direct mode: use Cinder InitializeConnection instead of Nova attach.
+	// Direct mode: use Cinder Attachment API instead of Nova attach.
 	if cs.Driver.IsDirectMode() {
 		connProps, err := cs.ConnProps.GetConnectorProperties(ctx, instanceID)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] failed to get connector properties for node %s: %v", instanceID, err)
 		}
 
-		connectionInfo, err := cloud.InitializeConnection(ctx, volumeID, connProps)
+		attachmentID, connectionInfo, err := cloud.AttachmentCreate(ctx, volumeID, instanceID, connProps)
 		if err != nil {
-			klog.Errorf("Failed to InitializeConnection: %v", err)
-			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] InitializeConnection failed for volume %s: %v", volumeID, err)
+			klog.Errorf("Failed to AttachmentCreate: %v", err)
+			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] AttachmentCreate failed for volume %s: %v", volumeID, err)
 		}
 
 		connectionInfoJSON, err := json.Marshal(connectionInfo)
@@ -341,10 +341,11 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] failed to marshal connection info: %v", err)
 		}
 
-		klog.V(4).Infof("ControllerPublishVolume %s on %s is successful (direct mode)", volumeID, instanceID)
+		klog.V(4).Infof("ControllerPublishVolume %s on %s is successful (direct mode, attachment %s)", volumeID, instanceID, attachmentID)
 
 		return &csi.ControllerPublishVolumeResponse{
 			PublishContext: map[string]string{
+				"AttachmentID":   attachmentID,
 				"ConnectionInfo": string(connectionInfoJSON),
 			},
 		}, nil
@@ -407,25 +408,42 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 		return nil, status.Error(codes.InvalidArgument, "[ControllerUnpublishVolume] Volume ID must be provided")
 	}
 
-	// Direct mode: use Cinder TerminateConnection instead of Nova detach.
+	// Direct mode: use Cinder Attachment API instead of Nova detach.
+	// Look up the attachment ID from the volume's existing attachments —
+	// no connector properties needed.
 	if cs.Driver.IsDirectMode() {
-		connProps, err := cs.ConnProps.GetConnectorProperties(ctx, instanceID)
-		if err != nil {
-			klog.V(3).Infof("ControllerUnpublishVolume assuming volume %s is detached, because connector properties for node %s not available: %v", volumeID, instanceID, err)
-			return &csi.ControllerUnpublishVolumeResponse{}, nil
-		}
-
-		err = cloud.TerminateConnection(ctx, volumeID, connProps)
+		vol, err := cloud.GetVolume(ctx, volumeID)
 		if err != nil {
 			if cpoerrors.IsNotFound(err) {
 				klog.V(3).Infof("ControllerUnpublishVolume assuming volume %s is detached, because it does not exist", volumeID)
 				return &csi.ControllerUnpublishVolumeResponse{}, nil
 			}
-			klog.Errorf("Failed to TerminateConnection: %v", err)
-			return nil, status.Errorf(codes.Internal, "[ControllerUnpublishVolume] TerminateConnection failed for volume %s: %v", volumeID, err)
+			return nil, status.Errorf(codes.Internal, "[ControllerUnpublishVolume] GetVolume failed for volume %s: %v", volumeID, err)
 		}
 
-		klog.V(4).Infof("ControllerUnpublishVolume %s on %s (direct mode)", volumeID, instanceID)
+		// Find the attachment matching the node ID.
+		var attachmentID string
+		for _, att := range vol.Attachments {
+			if att.ServerID == instanceID {
+				attachmentID = att.AttachmentID
+				break
+			}
+		}
+		if attachmentID == "" {
+			klog.V(3).Infof("ControllerUnpublishVolume assuming volume %s is already detached from %s (no matching attachment)", volumeID, instanceID)
+			return &csi.ControllerUnpublishVolumeResponse{}, nil
+		}
+
+		if err := cloud.AttachmentDelete(ctx, attachmentID); err != nil {
+			if cpoerrors.IsNotFound(err) {
+				klog.V(3).Infof("ControllerUnpublishVolume assuming attachment %s is already deleted", attachmentID)
+				return &csi.ControllerUnpublishVolumeResponse{}, nil
+			}
+			klog.Errorf("Failed to AttachmentDelete: %v", err)
+			return nil, status.Errorf(codes.Internal, "[ControllerUnpublishVolume] AttachmentDelete failed for attachment %s (volume %s): %v", attachmentID, volumeID, err)
+		}
+
+		klog.V(4).Infof("ControllerUnpublishVolume %s on %s (direct mode, attachment %s)", volumeID, instanceID, attachmentID)
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
 

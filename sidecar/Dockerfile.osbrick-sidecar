@@ -79,4 +79,10 @@ COPY sidecar/osbrick/ /app/osbrick/
 # Ensure the gen directory has an __init__.py.
 RUN touch /app/osbrick/gen/__init__.py
 
-ENTRYPOINT ["python", "-m", "osbrick.main"]
+# Entrypoint wrapper that symlinks host /run subdirectories from
+# /host/run into /run so os-brick tools find them, then starts the
+# gRPC server.  See entrypoint.sh for details.
+COPY sidecar/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]

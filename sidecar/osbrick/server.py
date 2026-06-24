@@ -126,7 +126,7 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
                 ROOT_HELPER,
                 use_multipath=connection_info.get("multipath", False),
             )
-            device_info = conn.connect_volume(connection_info.get("data", {}))
+            device_info = conn.connect_volume(connection_info.get("data") or connection_info)
         except Exception as e:
             LOG.exception("connect_volume failed")
             context.abort(
@@ -176,7 +176,7 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
                 use_multipath=connection_info.get("multipath", False),
             )
             conn.disconnect_volume(
-                connection_info.get("data", {}),
+                connection_info.get("data") or connection_info,
                 None,  # device_info — os-brick looks it up internally
             )
         except Exception as e:
@@ -216,7 +216,7 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
                 ROOT_HELPER,
                 use_multipath=connection_info.get("multipath", False),
             )
-            conn.extend_volume(connection_info.get("data", {}))
+            conn.extend_volume(connection_info.get("data") or connection_info)
         except Exception as e:
             LOG.exception("extend_volume failed")
             context.abort(

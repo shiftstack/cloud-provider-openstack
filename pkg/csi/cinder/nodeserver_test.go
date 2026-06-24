@@ -56,7 +56,7 @@ func fakeNodeServer() (*nodeServer, *openstack.OpenStackMock, *mount.MountMock, 
 		NodeVolumeAttachLimit: maxVolumesPerNode,
 	}
 
-	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, nil, nil, "")
+	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, nil, nil, "", nil)
 
 	return fakeNs, osmock, mmock, metamock
 }
@@ -429,7 +429,7 @@ func fakeDirectNodeServer() (*nodeServer, *openstack.OpenStackMock, *mount.Mount
 		NodeVolumeAttachLimit: maxVolumesPerNode,
 	}
 
-	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock, nil, "")
+	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock, nil, "", osmock)
 
 	return fakeNs, osmock, mmock, metamock, brickmock
 }
@@ -440,12 +440,13 @@ func fakeDirectNodeServer() (*nodeServer, *openstack.OpenStackMock, *mount.Mount
 // 3. Persists connection_info to .connection_info.json
 // 4. Formats and mounts using the returned device path
 func TestNodeStageVolumeDirectMode(t *testing.T) {
-	fakeNs, _, mmock, _, brickmock := fakeDirectNodeServer()
+	fakeNs, osmock, mmock, _, brickmock := fakeDirectNodeServer()
 
 	// Create a temp staging dir so the file write succeeds
 	stagingDir := t.TempDir()
 
 	brickmock.On("ConnectVolume", FakeCtx, FakeConnectionInfo).Return(FakeDevicePath, nil)
+	osmock.On("AttachmentComplete", FakeAttachmentID).Return(nil)
 	mmock.On("IsLikelyNotMountPointAttach", stagingDir).Return(true, nil)
 
 	assert := assert.New(t)
@@ -461,7 +462,7 @@ func TestNodeStageVolumeDirectMode(t *testing.T) {
 
 	fakeReq := &csi.NodeStageVolumeRequest{
 		VolumeId:          FakeVolID,
-		PublishContext:    map[string]string{"ConnectionInfo": FakeConnectionInfo},
+		PublishContext:    map[string]string{"ConnectionInfo": FakeConnectionInfo, "AttachmentID": FakeAttachmentID},
 		StagingTargetPath: stagingDir,
 		VolumeCapability:  stdVolCap,
 	}
@@ -475,7 +476,13 @@ func TestNodeStageVolumeDirectMode(t *testing.T) {
 	assert.NoError(readErr)
 	assert.Equal(FakeConnectionInfo, string(data))
 
+	// Verify attachment_id file was persisted
+	attachIDData, readErr := os.ReadFile(filepath.Join(stagingDir, attachmentIDFile))
+	assert.NoError(readErr)
+	assert.Equal(FakeAttachmentID, string(attachIDData))
+
 	brickmock.AssertCalled(t, "ConnectVolume", FakeCtx, FakeConnectionInfo)
+	osmock.AssertCalled(t, "AttachmentComplete", FakeAttachmentID)
 }
 
 // TestNodeStageVolumeDirectModeMissingConnectionInfo verifies that
@@ -604,7 +611,7 @@ func TestNodeGetInfoDirectMode(t *testing.T) {
 		NodeVolumeAttachLimit: maxVolumesPerNode,
 	}
 
-	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock, fakeClient, fakeNodeName)
+	fakeNs := NewNodeServer(d, mount.MInstance, metadata.MetadataService, opts, map[string]string{}, brickmock, fakeClient, fakeNodeName, nil)
 
 	// Set up mocks
 	metamock.On("GetInstanceID").Return(FakeNodeID, nil)

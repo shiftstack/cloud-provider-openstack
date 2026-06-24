@@ -105,7 +105,7 @@ func main() {
 	cmd.PersistentFlags().BoolVar(&noClient, "node-service-no-os-client", false, "If set to true then the CSI driver node service will not use the OpenStack client (default: false)")
 	cmd.PersistentFlags().MarkDeprecated("node-service-no-os-client", "This flag is deprecated and will be removed in the future. Node service do not use OpenStack credentials anymore.") //nolint:errcheck
 
-	cmd.PersistentFlags().StringVar(&attachMode, "attach-mode", "legacy", "Volume attach mode: 'legacy' uses Nova attach/detach, 'direct' uses Cinder InitializeConnection with os-brick sidecar for bare-metal nodes")
+	cmd.PersistentFlags().StringVar(&attachMode, "attach-mode", "legacy", "Volume attach mode: 'legacy' uses Nova attach/detach, 'direct' uses Cinder Attachment API with os-brick sidecar for bare-metal nodes")
 	cmd.PersistentFlags().StringVar(&brickEndpoint, "brick-endpoint", "unix:///var/run/osbrick/osbrick.sock", "Endpoint of the os-brick gRPC sidecar (only used when --attach-mode=direct)")
 
 	openstack.AddExtraFlags(pflag.CommandLine)
@@ -170,6 +170,7 @@ func handle() {
 		var nodeKubeClient kubernetes.Interface
 		var nodeName string
 		var brickClient brick.IConnector
+		var nodeCloud openstack.IOpenStack
 		if attachMode == "direct" {
 			nodeKubeClient = csi.GetKubeClient()
 			nodeName = os.Getenv("KUBE_NODE_NAME")
@@ -183,9 +184,16 @@ func handle() {
 				klog.Fatalf("Failed to connect to os-brick sidecar at %s: %v", brickEndpoint, err2)
 			}
 			klog.Infof("Connected to os-brick sidecar at %s", brickEndpoint)
+
+			// Create an OpenStack client for the node service so it
+			// can call AttachmentComplete after connecting a volume.
+			nodeCloud, err2 = openstack.GetOpenStackProvider(cloudNames[0])
+			if err2 != nil {
+				klog.Fatalf("Failed to create OpenStack provider for node service: %v", err2)
+			}
 		}
 
-		d.SetupNodeService(mount, metadata, cfg.BlockStorage, additionalTopologies, brickClient, nodeKubeClient, nodeName)
+		d.SetupNodeService(mount, metadata, cfg.BlockStorage, additionalTopologies, brickClient, nodeKubeClient, nodeName, nodeCloud)
 	}
 
 	d.Run()
