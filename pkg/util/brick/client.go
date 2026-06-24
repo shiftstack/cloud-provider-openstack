@@ -69,6 +69,7 @@ func (c *GRPCConnector) GetConnectorProperties(ctx context.Context) (*ConnectorP
 		Host:      resp.GetHost(),
 		Multipath: resp.GetMultipath(),
 		Extras:    resp.GetExtras(),
+		RawJSON:   resp.GetRawJson(),
 	}, nil
 }
 

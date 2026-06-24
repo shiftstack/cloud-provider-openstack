@@ -510,22 +510,34 @@ func (ns *nodeServer) storeConnectorProperties(ctx context.Context, nodeID strin
 		return status.Errorf(codes.Internal, "[NodeGetInfo] failed to get connector properties: %v", err)
 	}
 
-	// Step 2: convert to map and marshal to JSON.
-	propsMap := map[string]any{
-		"initiator": props.Initiator,
-		"host":      props.Host,
-		"multipath": props.Multipath,
-	}
-	if len(props.Wwpns) > 0 {
-		propsMap["wwpns"] = props.Wwpns
-	}
-	for k, v := range props.Extras {
-		propsMap[k] = v
-	}
-
-	propsJSON, err := json.Marshal(propsMap)
-	if err != nil {
-		return status.Errorf(codes.Internal, "[NodeGetInfo] failed to marshal connector properties: %v", err)
+	// Step 2: serialize connector properties to JSON.
+	//
+	// Prefer RawJSON (the complete os-brick dict with original Python
+	// types) over manually reconstructing the map from typed fields.
+	// This avoids type coercion issues (e.g. Python bool True becoming
+	// Go string "True") that cause Cinder backends to reject the
+	// connector dict.
+	var propsJSON []byte
+	if props.RawJSON != "" {
+		propsJSON = []byte(props.RawJSON)
+	} else {
+		// Fallback for sidecars that don't set raw_json yet.
+		propsMap := map[string]any{
+			"initiator": props.Initiator,
+			"host":      props.Host,
+			"multipath": props.Multipath,
+		}
+		if len(props.Wwpns) > 0 {
+			propsMap["wwpns"] = props.Wwpns
+		}
+		for k, v := range props.Extras {
+			propsMap[k] = v
+		}
+		var marshalErr error
+		propsJSON, marshalErr = json.Marshal(propsMap)
+		if marshalErr != nil {
+			return status.Errorf(codes.Internal, "[NodeGetInfo] failed to marshal connector properties: %v", marshalErr)
+		}
 	}
 
 	// Step 3: patch the Kubernetes node annotation.

@@ -30,6 +30,14 @@ type ConnectorProperties struct {
 	Host      string
 	Multipath bool
 	Extras    map[string]string
+
+	// RawJSON is the complete connector properties dict from os-brick,
+	// serialized as JSON.  It preserves original Python types (bools,
+	// lists, ints) that would be lost through the typed fields above
+	// and the string-valued Extras map.  When non-empty, this should
+	// be used as the canonical representation for node annotations
+	// and Cinder API calls.
+	RawJSON string
 }
 
 // IConnector is the interface to the os-brick sidecar.

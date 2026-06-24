@@ -77,11 +77,18 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         LOG.info("Connector properties: %s", props)
 
         # Map the os-brick dict to the proto message.
+        #
+        # The typed fields (initiator, wwpns, host, multipath) are set
+        # for convenience and logging.  The raw_json field carries the
+        # complete dict as JSON, preserving original Python types
+        # (bools, lists, ints) so the Go side can store it directly
+        # in the node annotation and pass it to Cinder without type
+        # coercion (e.g. Python True → string "True").
         extras = {}
         known_keys = {"initiator", "wwpns", "host", "multipath"}
         for key, value in props.items():
             if key not in known_keys:
-                extras[key] = str(value)
+                extras[key] = json.dumps(value) if not isinstance(value, str) else value
 
         return connector_pb2.ConnectorProperties(
             initiator=props.get("initiator", ""),
@@ -89,6 +96,7 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
             host=props.get("host", ""),
             multipath=props.get("multipath", False),
             extras=extras,
+            raw_json=json.dumps(props),
         )
 
     def ConnectVolume(self, request, context):

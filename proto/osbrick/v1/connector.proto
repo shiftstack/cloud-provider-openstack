@@ -73,6 +73,14 @@ message ConnectorProperties {
   // Protocol-specific fields (e.g. "sdc_guid" for PowerFlex,
   // "nqn" for NVMe-oF) that don't warrant dedicated proto fields.
   map<string, string> extras = 5;
+
+  // The complete connector properties dict from os-brick, serialized
+  // as JSON.  This preserves the original Python types (bools, lists,
+  // ints) that would otherwise be lost through the typed proto fields
+  // and the string-valued extras map.  The Go side uses this directly
+  // as the node annotation value and passes it to Cinder's
+  // InitializeConnection / TerminateConnection.
+  string raw_json = 6;
 }
 
 // ConnectVolumeRequest wraps the Cinder connection_info as an opaque

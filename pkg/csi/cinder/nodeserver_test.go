@@ -610,10 +610,15 @@ func TestNodeGetInfoDirectMode(t *testing.T) {
 	metamock.On("GetInstanceID").Return(FakeNodeID, nil)
 	metamock.On("GetAvailabilityZone").Return(FakeAvailability, nil)
 
+	// RawJSON carries the complete os-brick dict with original types.
+	// When set, storeConnectorProperties uses it directly instead of
+	// reconstructing the map from typed fields.
+	fakeRawJSON := `{"initiator":"iqn.2025-01.com.example:node1","host":"test-node","multipath":false,"ip":"10.0.0.1","enforce_multipath":false}`
 	fakeProps := &brick.ConnectorProperties{
 		Initiator: "iqn.2025-01.com.example:node1",
 		Host:      "test-node",
 		Multipath: false,
+		RawJSON:   fakeRawJSON,
 	}
 	brickmock.On("GetConnectorProperties", FakeCtx).Return(fakeProps, nil)
 
@@ -635,11 +640,16 @@ func TestNodeGetInfoDirectMode(t *testing.T) {
 	propsJSON, ok := updatedNode.Annotations[ConnectorPropertiesAnnotation]
 	assert.True(ok, "connector properties annotation should be set")
 
-	// Verify the annotation contains the expected JSON
+	// The annotation should be the raw JSON from os-brick, preserving
+	// original types (bools as true/false, not strings).
 	var props map[string]any
 	err = json.Unmarshal([]byte(propsJSON), &props)
 	assert.NoError(err)
 	assert.Equal("iqn.2025-01.com.example:node1", props["initiator"])
 	assert.Equal("test-node", props["host"])
 	assert.Equal(false, props["multipath"])
+	// These fields come through RawJSON — they would not be present
+	// if the annotation were built from typed fields only.
+	assert.Equal("10.0.0.1", props["ip"])
+	assert.Equal(false, props["enforce_multipath"])
 }

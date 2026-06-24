@@ -101,6 +101,7 @@ func newTestClient(t *testing.T, srv *fakeServer) *GRPCConnector {
 }
 
 func TestGetConnectorProperties(t *testing.T) {
+	rawJSON := `{"initiator":"iqn.2025-01.com.example:node1","host":"node1.example.com","multipath":true,"sdc_guid":"ABC123"}`
 	srv := &fakeServer{
 		connProps: &pb.ConnectorProperties{
 			Initiator: "iqn.2025-01.com.example:node1",
@@ -108,6 +109,7 @@ func TestGetConnectorProperties(t *testing.T) {
 			Host:      "node1.example.com",
 			Multipath: true,
 			Extras:    map[string]string{"sdc_guid": "ABC123"},
+			RawJson:   rawJSON,
 		},
 	}
 	client := newTestClient(t, srv)
@@ -132,6 +134,9 @@ func TestGetConnectorProperties(t *testing.T) {
 	}
 	if props.Extras["sdc_guid"] != "ABC123" {
 		t.Errorf("Extras[sdc_guid] = %q, want %q", props.Extras["sdc_guid"], "ABC123")
+	}
+	if props.RawJSON != rawJSON {
+		t.Errorf("RawJSON = %q, want %q", props.RawJSON, rawJSON)
 	}
 }
 

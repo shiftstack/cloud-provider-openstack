@@ -93,7 +93,14 @@ type ConnectorProperties struct {
 	Multipath bool `protobuf:"varint,4,opt,name=multipath,proto3" json:"multipath,omitempty"`
 	// Protocol-specific fields (e.g. "sdc_guid" for PowerFlex,
 	// "nqn" for NVMe-oF) that don't warrant dedicated proto fields.
-	Extras        map[string]string `protobuf:"bytes,5,rep,name=extras,proto3" json:"extras,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Extras map[string]string `protobuf:"bytes,5,rep,name=extras,proto3" json:"extras,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The complete connector properties dict from os-brick, serialized
+	// as JSON.  This preserves the original Python types (bools, lists,
+	// ints) that would otherwise be lost through the typed proto fields
+	// and the string-valued extras map.  The Go side uses this directly
+	// as the node annotation value and passes it to Cinder's
+	// InitializeConnection / TerminateConnection.
+	RawJson       string `protobuf:"bytes,6,opt,name=raw_json,json=rawJson,proto3" json:"raw_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -161,6 +168,13 @@ func (x *ConnectorProperties) GetExtras() map[string]string {
 		return x.Extras
 	}
 	return nil
+}
+
+func (x *ConnectorProperties) GetRawJson() string {
+	if x != nil {
+		return x.RawJson
+	}
+	return ""
 }
 
 // ConnectVolumeRequest wraps the Cinder connection_info as an opaque
@@ -445,13 +459,14 @@ const file_proto_osbrick_v1_connector_proto_rawDesc = "" +
 	"\n" +
 	" proto/osbrick/v1/connector.proto\x12\n" +
 	"osbrick.v1\"\x1f\n" +
-	"\x1dGetConnectorPropertiesRequest\"\xfb\x01\n" +
+	"\x1dGetConnectorPropertiesRequest\"\x96\x02\n" +
 	"\x13ConnectorProperties\x12\x1c\n" +
 	"\tinitiator\x18\x01 \x01(\tR\tinitiator\x12\x14\n" +
 	"\x05wwpns\x18\x02 \x03(\tR\x05wwpns\x12\x12\n" +
 	"\x04host\x18\x03 \x01(\tR\x04host\x12\x1c\n" +
 	"\tmultipath\x18\x04 \x01(\bR\tmultipath\x12C\n" +
-	"\x06extras\x18\x05 \x03(\v2+.osbrick.v1.ConnectorProperties.ExtrasEntryR\x06extras\x1a9\n" +
+	"\x06extras\x18\x05 \x03(\v2+.osbrick.v1.ConnectorProperties.ExtrasEntryR\x06extras\x12\x19\n" +
+	"\braw_json\x18\x06 \x01(\tR\arawJson\x1a9\n" +
 	"\vExtrasEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"?\n" +
