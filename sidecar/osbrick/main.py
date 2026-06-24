@@ -27,6 +27,7 @@ import sys
 from concurrent import futures
 
 import grpc
+from oslo_config import cfg
 from grpc_health.v1 import health
 from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
@@ -83,8 +84,16 @@ def _create_server(socket_path: str) -> grpc.Server:
     return server
 
 
+def _configure_oslo():
+    """Set required oslo.concurrency lock_path for os-brick."""
+    lock_dir = "/var/run/osbrick/locks"
+    os.makedirs(lock_dir, exist_ok=True)
+    cfg.CONF.set_override("lock_path", lock_dir, group="oslo_concurrency")
+
+
 def main():
     _configure_logging()
+    _configure_oslo()
 
     socket_path = os.environ.get("OSBRICK_SOCKET_PATH", DEFAULT_SOCKET_PATH)
 
