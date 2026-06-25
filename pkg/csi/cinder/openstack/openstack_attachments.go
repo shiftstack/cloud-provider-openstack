@@ -21,6 +21,7 @@ import (
 
 	"github.com/gophercloud/gophercloud/v2/openstack"
 	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/attachments"
+	"github.com/gophercloud/gophercloud/v2/openstack/blockstorage/v3/volumes"
 	"k8s.io/cloud-provider-openstack/pkg/metrics"
 	"k8s.io/klog/v2"
 )
@@ -94,5 +95,30 @@ func (os *OpenStack) AttachmentComplete(ctx context.Context, attachmentID string
 	}
 
 	klog.V(4).Infof("Completed attachment %s", attachmentID)
+	return nil
+}
+
+// ResetVolumeStatus force-resets a Cinder volume's status.
+// This is needed when a volume is stuck in a transient state
+// (e.g. "attaching") with no attachments, which can happen when
+// a previous attachment operation was interrupted.
+func (os *OpenStack) ResetVolumeStatus(ctx context.Context, volumeID string, targetStatus string) error {
+	blockstorageClient, err := openstack.NewBlockStorageV3(os.blockstorage.ProviderClient, os.epOpts)
+	if err != nil {
+		return err
+	}
+
+	opts := volumes.ResetStatusOpts{
+		Status: targetStatus,
+	}
+
+	mc := metrics.NewMetricContext("volume", "reset_status")
+	err = volumes.ResetStatus(ctx, blockstorageClient, volumeID, opts).ExtractErr()
+	if mc.ObserveRequest(err) != nil {
+		klog.Errorf("Failed to reset volume %s status to %s: %v", volumeID, targetStatus, err)
+		return err
+	}
+
+	klog.V(4).Infof("Reset volume %s status to %s", volumeID, targetStatus)
 	return nil
 }

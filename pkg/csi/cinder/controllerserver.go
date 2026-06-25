@@ -315,7 +315,7 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 		return nil, status.Error(codes.InvalidArgument, "[ControllerPublishVolume] Volume capability must be provided")
 	}
 
-	_, err := cloud.GetVolume(ctx, volumeID)
+	vol, err := cloud.GetVolume(ctx, volumeID)
 	if err != nil {
 		if cpoerrors.IsNotFound(err) {
 			return nil, status.Errorf(codes.NotFound, "[ControllerPublishVolume] Volume %s not found", volumeID)
@@ -325,6 +325,37 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 
 	// Direct mode: use Cinder Attachment API instead of Nova attach.
 	if cs.Driver.IsDirectMode() {
+		// Clean up any stale Cinder attachments for this volume.
+		// This can happen when a previous ControllerPublishVolume
+		// succeeded but NodeStageVolume failed, and the Kubernetes
+		// VolumeAttachment was recycled without
+		// ControllerUnpublishVolume completing successfully (e.g.
+		// controller pod restart).
+		for _, att := range vol.Attachments {
+			klog.V(3).Infof("[ControllerPublishVolume] deleting stale attachment %s for volume %s (server %s)", att.AttachmentID, volumeID, att.ServerID)
+			if delErr := cloud.AttachmentDelete(ctx, att.AttachmentID); delErr != nil {
+				if !cpoerrors.IsNotFound(delErr) {
+					klog.Warningf("[ControllerPublishVolume] failed to delete stale attachment %s: %v", att.AttachmentID, delErr)
+				}
+			}
+		}
+
+		// If the volume is not yet available (e.g. stuck in
+		// "attaching" or "detaching" after a stale attachment
+		// cleanup or a previous incomplete operation), wait
+		// briefly then force-reset if needed.
+		if vol.Status != openstack.VolumeAvailableStatus {
+			klog.V(3).Infof("[ControllerPublishVolume] volume %s status is %q, waiting for it to become available", volumeID, vol.Status)
+			if waitErr := cloud.WaitVolumeTargetStatus(ctx, volumeID, []string{openstack.VolumeAvailableStatus}); waitErr != nil {
+				// Volume is stuck in a transient state with no
+				// attachments.  Force-reset to available.
+				klog.Warningf("[ControllerPublishVolume] volume %s stuck in transient state, resetting to available", volumeID)
+				if resetErr := cloud.ResetVolumeStatus(ctx, volumeID, openstack.VolumeAvailableStatus); resetErr != nil {
+					return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] volume %s did not reach available status (%v) and reset failed: %v", volumeID, waitErr, resetErr)
+				}
+			}
+		}
+
 		connProps, err := cs.ConnProps.GetConnectorProperties(ctx, instanceID)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "[ControllerPublishVolume] failed to get connector properties for node %s: %v", instanceID, err)
