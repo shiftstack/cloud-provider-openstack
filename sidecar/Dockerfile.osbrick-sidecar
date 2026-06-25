@@ -24,7 +24,7 @@
 # The build context must be the repository root so the proto file is
 # accessible.
 
-FROM python:3.11-slim AS builder
+FROM python:3.13-slim AS builder
 
 # Install system packages required by os-brick at build time.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -49,7 +49,7 @@ RUN mkdir -p /build/gen && python -m grpc_tools.protoc \
 
 # ---
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Install system packages required at runtime for storage operations.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -58,16 +58,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sg3-utils \
     sysfsutils \
     sudo \
-    # Ceph/RBD support
+    # Ceph/RBD support: python3-rados and python3-rbd must match the
+    # image's Python ABI.  python:3.13-slim is based on Debian Trixie
+    # whose system Python is also 3.13, so the apt C extensions are
+    # ABI-compatible.
     ceph-common \
     python3-rbd \
     python3-rados \
     && rm -rf /var/lib/apt/lists/*
 
+# The apt-installed rados/rbd C extensions live under the system
+# Python's dist-packages, which the image's /usr/local Python does
+# not search by default.  Make them importable.
+ENV PYTHONPATH=/usr/lib/python3/dist-packages
+
 WORKDIR /app
 
 # Copy installed packages from builder.
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy generated gRPC stubs.
