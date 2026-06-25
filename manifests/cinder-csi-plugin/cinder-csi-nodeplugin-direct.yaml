@@ -133,6 +133,9 @@ spec:
             - name: ceph-config
               mountPath: /etc/ceph
               readOnly: true
+            - name: host-lib-modules
+              mountPath: /lib/modules
+              readOnly: true
       volumes:
         - name: socket-dir
           hostPath:
@@ -175,6 +178,10 @@ spec:
           secret:
             secretName: ceph-config
             optional: true
+        - name: host-lib-modules
+          hostPath:
+            path: /lib/modules
+            type: Directory
         # - name: cacert
         #   hostPath:
         #     path: /etc/cacert

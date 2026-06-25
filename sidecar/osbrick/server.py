@@ -21,7 +21,9 @@ delegates to the corresponding os-brick function.
 
 import json
 import logging
+import os
 import socket
+import subprocess
 
 import grpc
 from os_brick.initiator import connector as brick_connector
@@ -99,6 +101,45 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
             raw_json=json.dumps(props),
         )
 
+    @staticmethod
+    def _resolve_rbd_device(connection_info, symlink_path):
+        """Look up the actual /dev/rbdN device for an RBD volume.
+
+        os-brick returns a udev symlink path (/dev/rbd/<pool>/<image>)
+        that may not exist when udev ceph-renamer rules are not in
+        place (e.g. inside a container).  Query 'rbd device list' to
+        find the numeric device instead.
+        """
+        data = connection_info.get("data") or connection_info
+        pool = data.get("name", "").split("/")[0] if "/" in data.get("name", "") else ""
+        image = data.get("name", "").split("/")[-1] if data.get("name") else ""
+
+        try:
+            out = subprocess.check_output(
+                ["rbd", "device", "list", "--format", "json"],
+                stderr=subprocess.STDOUT,
+            )
+            devices = json.loads(out)
+            for dev in devices:
+                if dev.get("pool") == pool and dev.get("name") == image:
+                    real_path = dev.get("device", "")
+                    LOG.info(
+                        "_resolve_rbd_device: resolved %s -> %s",
+                        symlink_path,
+                        real_path,
+                    )
+                    return real_path
+        except Exception:
+            LOG.exception("_resolve_rbd_device: failed to query rbd device list")
+
+        # Fall through: return the original symlink path and hope
+        # for the best.
+        LOG.warning(
+            "_resolve_rbd_device: could not resolve %s, returning as-is",
+            symlink_path,
+        )
+        return symlink_path
+
     def ConnectVolume(self, request, context):
         """Attach a volume using os-brick and return the device path."""
         try:
@@ -121,10 +162,19 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         )
 
         try:
+            # For RBD volumes, do_local_attach=True maps the volume
+            # as a kernel RBD device (/dev/rbd<N>) instead of
+            # returning a librbd userspace handle.  The CSI driver
+            # needs a block device path to format and mount.
+            extra_kwargs = {}
+            if driver_volume_type == "rbd":
+                extra_kwargs["do_local_attach"] = True
+
             conn = brick_connector.InitiatorConnector.factory(
                 driver_volume_type,
                 ROOT_HELPER,
                 use_multipath=connection_info.get("multipath", False),
+                **extra_kwargs,
             )
             device_info = conn.connect_volume(connection_info.get("data") or connection_info)
         except Exception as e:
@@ -134,8 +184,18 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
                 f"connect_volume failed: {e}",
             )
 
-        device_path = device_info.get("path", "")
+        device_path = str(device_info.get("path", ""))
         multipath_device = device_info.get("multipath_device", "")
+
+        # os-brick's RBD connector returns a udev symlink path
+        # (/dev/rbd/<pool>/<image>) that requires the ceph-renamer
+        # udev rules.  In a container, udev typically isn't running
+        # so the symlink may not exist.  Fall back to the numeric
+        # device by querying 'rbd device list'.
+        if device_path and not os.path.exists(device_path) and driver_volume_type == "rbd":
+            device_path = self._resolve_rbd_device(
+                connection_info, device_path
+            )
 
         LOG.info(
             "ConnectVolume: device_path=%s multipath_device=%s",
@@ -170,10 +230,15 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         )
 
         try:
+            extra_kwargs = {}
+            if driver_volume_type == "rbd":
+                extra_kwargs["do_local_attach"] = True
+
             conn = brick_connector.InitiatorConnector.factory(
                 driver_volume_type,
                 ROOT_HELPER,
                 use_multipath=connection_info.get("multipath", False),
+                **extra_kwargs,
             )
             conn.disconnect_volume(
                 connection_info.get("data") or connection_info,
@@ -211,10 +276,15 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         )
 
         try:
+            extra_kwargs = {}
+            if driver_volume_type == "rbd":
+                extra_kwargs["do_local_attach"] = True
+
             conn = brick_connector.InitiatorConnector.factory(
                 driver_volume_type,
                 ROOT_HELPER,
                 use_multipath=connection_info.get("multipath", False),
+                **extra_kwargs,
             )
             conn.extend_volume(connection_info.get("data") or connection_info)
         except Exception as e:
