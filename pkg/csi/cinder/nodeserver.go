@@ -352,22 +352,30 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	}
 
 	if ns.Driver.IsDirectMode() {
-		// In direct mode we must read the persisted connection_info
-		// *before* unmounting because CleanupMountPoint removes the
-		// staging directory (and the hidden file underneath it).
-		connInfoPath := filepath.Join(stagingTargetPath, connectionInfoFile)
-		data, readErr := os.ReadFile(connInfoPath)
+		// In direct mode the connection_info and attachment_id files
+		// are persisted *underneath* the mount point (written before
+		// the volume is mounted in NodeStageVolume).  The sequence
+		// here is:
+		//   1. Unmount the filesystem (but don't remove the dir —
+		//      it still contains the hidden files).
+		//   2. Read the now-visible connection_info file.
+		//   3. Disconnect the volume via os-brick.
+		//   4. Remove the persisted files and the empty directory.
 
-		// Step 1: unmount the filesystem.
-		if err := ns.Mount.UnmountPath(stagingTargetPath); err != nil {
-			return nil, status.Errorf(codes.Internal, "Unmount of targetPath %s failed with error %v", stagingTargetPath, err)
+		// Step 1: unmount only — do NOT use UnmountPath which also
+		// calls os.Remove and fails with "directory not empty".
+		if err := ns.Mount.Mounter().Unmount(stagingTargetPath); err != nil {
+			// If not mounted, that's fine (idempotent).
+			klog.V(4).Infof("NodeUnstageVolume: Unmount returned %v for %s, checking mount state", err, stagingTargetPath)
 		}
 
-		// Step 2 & 5: if the connection_info file was missing the volume
-		// was already disconnected (idempotent).
+		// Step 2: read the connection_info file (visible after unmount).
+		connInfoPath := filepath.Join(stagingTargetPath, connectionInfoFile)
+		data, readErr := os.ReadFile(connInfoPath)
 		if readErr != nil {
 			if os.IsNotExist(readErr) {
 				klog.V(4).Infof("NodeUnstageVolume: connection info file not found for volume %s, assuming already disconnected", volumeID)
+				_ = os.Remove(stagingTargetPath) // best-effort cleanup
 				return &csi.NodeUnstageVolumeResponse{}, nil
 			}
 			return nil, status.Errorf(codes.Internal, "[NodeUnstageVolume] failed to read connection info: %v", readErr)
@@ -380,10 +388,15 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		}
 		klog.V(4).Infof("NodeUnstageVolume: DisconnectVolume succeeded for volume %s", volumeID)
 
-		// Step 4: clean up the persisted file.  It may already have been
-		// removed by CleanupMountPoint; ignore ENOENT.
-		if removeErr := os.Remove(connInfoPath); removeErr != nil && !os.IsNotExist(removeErr) {
-			klog.Warningf("NodeUnstageVolume: failed to remove connection info file %s: %v", connInfoPath, removeErr)
+		// Step 4: remove persisted files and the staging directory.
+		for _, f := range []string{connectionInfoFile, attachmentIDFile} {
+			p := filepath.Join(stagingTargetPath, f)
+			if removeErr := os.Remove(p); removeErr != nil && !os.IsNotExist(removeErr) {
+				klog.Warningf("NodeUnstageVolume: failed to remove %s: %v", p, removeErr)
+			}
+		}
+		if removeErr := os.Remove(stagingTargetPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			klog.Warningf("NodeUnstageVolume: failed to remove staging dir %s: %v", stagingTargetPath, removeErr)
 		}
 
 		return &csi.NodeUnstageVolumeResponse{}, nil
