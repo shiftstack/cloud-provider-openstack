@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/google/uuid"
 	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -411,10 +412,29 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
+// nodeIDNamespace is a UUID v5 namespace used to derive a
+// deterministic node ID from the Kubernetes node name when the node
+// is not a Nova instance and cannot reach the metadata service
+// (e.g. bare-metal nodes, k3s on devstack host).
+var nodeIDNamespace = uuid.MustParse("458bfdd0-3a23-4a81-a1a0-b6cd82e37c23")
+
 func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
 	nodeID, err := ns.Metadata.GetInstanceID()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "[NodeGetInfo] unable to retrieve instance id of node %v", err)
+		if !ns.Driver.IsDirectMode() {
+			return nil, status.Errorf(codes.Internal, "[NodeGetInfo] unable to retrieve instance id of node %v", err)
+		}
+		// Direct mode: the node may not be a Nova instance
+		// (e.g. bare-metal, k3s on the devstack host), so
+		// the metadata service at 169.254.169.254 is not
+		// reachable.  Derive a deterministic UUID from the
+		// Kubernetes node name so Cinder's AttachmentCreate
+		// accepts it as a valid instance_uuid.
+		if ns.NodeName == "" {
+			return nil, status.Errorf(codes.Internal, "[NodeGetInfo] node is not a Nova instance (%v) and KUBE_NODE_NAME not set", err)
+		}
+		nodeID = uuid.NewSHA1(nodeIDNamespace, []byte(ns.NodeName)).String()
+		klog.Infof("NodeGetInfo: node is not a Nova instance, using node name %q to derive nodeID %s", ns.NodeName, nodeID)
 	}
 
 	// In direct mode, store connector properties in a Kubernetes node
@@ -439,6 +459,10 @@ func (ns *nodeServer) NodeGetInfo(ctx context.Context, req *csi.NodeGetInfoReque
 
 	zone, err := ns.Metadata.GetAvailabilityZone()
 	if err != nil {
+		if ns.Driver.IsDirectMode() {
+			klog.Warningf("NodeGetInfo: node is not a Nova instance, skipping topology: %v", err)
+			return nodeInfo, nil
+		}
 		return nil, status.Errorf(codes.Internal, "[NodeGetInfo] Unable to retrieve availability zone of node %v", err)
 	}
 	topologyMap := make(map[string]string, len(ns.Topologies)+1)
