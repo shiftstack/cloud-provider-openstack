@@ -474,6 +474,18 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 			return nil, status.Errorf(codes.Internal, "[ControllerUnpublishVolume] AttachmentDelete failed for attachment %s (volume %s): %v", attachmentID, volumeID, err)
 		}
 
+		// After deleting the attachment, ensure the volume reaches
+		// "available".  Cinder's Attachment API can leave the
+		// volume in a transient state (e.g. "attaching") after the
+		// last attachment is removed.  Wait briefly, then
+		// force-reset if needed.
+		if waitErr := cloud.WaitVolumeTargetStatus(ctx, volumeID, []string{openstack.VolumeAvailableStatus}); waitErr != nil {
+			klog.Warningf("[ControllerUnpublishVolume] volume %s did not reach available after detach, resetting: %v", volumeID, waitErr)
+			if resetErr := cloud.ResetVolumeStatus(ctx, volumeID, openstack.VolumeAvailableStatus); resetErr != nil {
+				klog.Warningf("[ControllerUnpublishVolume] failed to reset volume %s status: %v", volumeID, resetErr)
+			}
+		}
+
 		klog.V(4).Infof("ControllerUnpublishVolume %s on %s (direct mode, attachment %s)", volumeID, instanceID, attachmentID)
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
