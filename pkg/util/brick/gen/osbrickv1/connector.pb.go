@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package osbrick.v1 defines the gRPC API between the Cinder CSI driver
-// (Go) and the os-brick sidecar (Python).  The sidecar handles low-level
+// (Go) and the os-brick sidecar (Python). The sidecar handles low-level
 // volume attach/detach operations (iSCSI, FC, NVMe-oF, etc.) for nodes
 // using direct attachment mode (typically bare-metal nodes).
 
@@ -40,7 +40,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// GetConnectorPropertiesRequest is intentionally empty.  The sidecar
+// GetConnectorPropertiesRequest is intentionally empty. The sidecar
 // reads initiator information from the local host.
 type GetConnectorPropertiesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -95,9 +95,9 @@ type ConnectorProperties struct {
 	// "nqn" for NVMe-oF) that don't warrant dedicated proto fields.
 	Extras map[string]string `protobuf:"bytes,5,rep,name=extras,proto3" json:"extras,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// The complete connector properties dict from os-brick, serialized
-	// as JSON.  This preserves the original Python types (bools, lists,
+	// as JSON. This preserves the original Python types (bools, lists,
 	// ints) that would otherwise be lost through the typed proto fields
-	// and the string-valued extras map.  The Go side uses this directly
+	// and the string-valued extras map. The Go side uses this directly
 	// as the node annotation value and passes it to Cinder's
 	// InitializeConnection / TerminateConnection.
 	RawJson       string `protobuf:"bytes,6,opt,name=raw_json,json=rawJson,proto3" json:"raw_json,omitempty"`
@@ -178,7 +178,7 @@ func (x *ConnectorProperties) GetRawJson() string {
 }
 
 // ConnectVolumeRequest wraps the Cinder connection_info as an opaque
-// JSON string.  The Go side does not interpret this dict — os-brick
+// JSON string. The Go side does not interpret this dict — os-brick
 // parses it based on the driver_volume_type field inside.
 type ConnectVolumeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -233,7 +233,7 @@ type ConnectVolumeResponse struct {
 	// Primary block device path (e.g. "/dev/sdb").
 	DevicePath string `protobuf:"bytes,1,opt,name=device_path,json=devicePath,proto3" json:"device_path,omitempty"`
 	// Multipath device path, if multipath is active
-	// (e.g. "/dev/dm-3").  Empty when multipath is not in use.
+	// (e.g. "/dev/dm-3"). Empty when multipath is not in use.
 	MultipathDevice string `protobuf:"bytes,2,opt,name=multipath_device,json=multipathDevice,proto3" json:"multipath_device,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -330,7 +330,7 @@ func (x *DisconnectVolumeRequest) GetConnectionInfo() string {
 	return ""
 }
 
-// DisconnectVolumeResponse is intentionally empty.  A successful
+// DisconnectVolumeResponse is intentionally empty. A successful
 // response means the volume has been disconnected.
 type DisconnectVolumeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -415,7 +415,7 @@ func (x *ExtendVolumeRequest) GetConnectionInfo() string {
 	return ""
 }
 
-// ExtendVolumeResponse is intentionally empty.  A successful response
+// ExtendVolumeResponse is intentionally empty. A successful response
 // means the OS now sees the updated volume size.
 type ExtendVolumeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package osbrick.v1 defines the gRPC API between the Cinder CSI driver
-// (Go) and the os-brick sidecar (Python).  The sidecar handles low-level
+// (Go) and the os-brick sidecar (Python). The sidecar handles low-level
 // volume attach/detach operations (iSCSI, FC, NVMe-oF, etc.) for nodes
 // using direct attachment mode (typically bare-metal nodes).
 
@@ -38,7 +38,7 @@ service OsBrickConnector {
 
   // ConnectVolume asks os-brick to attach a volume described by
   // connection_info (the JSON dict returned by Cinder's
-  // InitializeConnection API).  Returns the local device path.
+  // InitializeConnection API). Returns the local device path.
   rpc ConnectVolume(ConnectVolumeRequest) returns (ConnectVolumeResponse);
 
   // DisconnectVolume asks os-brick to detach a previously connected
@@ -50,7 +50,7 @@ service OsBrickConnector {
   rpc ExtendVolume(ExtendVolumeRequest) returns (ExtendVolumeResponse);
 }
 
-// GetConnectorPropertiesRequest is intentionally empty.  The sidecar
+// GetConnectorPropertiesRequest is intentionally empty. The sidecar
 // reads initiator information from the local host.
 message GetConnectorPropertiesRequest {}
 
@@ -75,16 +75,16 @@ message ConnectorProperties {
   map<string, string> extras = 5;
 
   // The complete connector properties dict from os-brick, serialized
-  // as JSON.  This preserves the original Python types (bools, lists,
+  // as JSON. This preserves the original Python types (bools, lists,
   // ints) that would otherwise be lost through the typed proto fields
-  // and the string-valued extras map.  The Go side uses this directly
+  // and the string-valued extras map. The Go side uses this directly
   // as the node annotation value and passes it to Cinder's
   // InitializeConnection / TerminateConnection.
   string raw_json = 6;
 }
 
 // ConnectVolumeRequest wraps the Cinder connection_info as an opaque
-// JSON string.  The Go side does not interpret this dict — os-brick
+// JSON string. The Go side does not interpret this dict — os-brick
 // parses it based on the driver_volume_type field inside.
 message ConnectVolumeRequest {
   // JSON-encoded connection_info dict from Cinder's
@@ -99,7 +99,7 @@ message ConnectVolumeResponse {
   string device_path = 1;
 
   // Multipath device path, if multipath is active
-  // (e.g. "/dev/dm-3").  Empty when multipath is not in use.
+  // (e.g. "/dev/dm-3"). Empty when multipath is not in use.
   string multipath_device = 2;
 }
 
@@ -110,7 +110,7 @@ message DisconnectVolumeRequest {
   string connection_info = 1;
 }
 
-// DisconnectVolumeResponse is intentionally empty.  A successful
+// DisconnectVolumeResponse is intentionally empty. A successful
 // response means the volume has been disconnected.
 message DisconnectVolumeResponse {}
 
@@ -121,6 +121,6 @@ message ExtendVolumeRequest {
   string connection_info = 1;
 }
 
-// ExtendVolumeResponse is intentionally empty.  A successful response
+// ExtendVolumeResponse is intentionally empty. A successful response
 // means the OS now sees the updated volume size.
 message ExtendVolumeResponse {}

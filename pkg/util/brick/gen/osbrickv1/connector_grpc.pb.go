@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package osbrick.v1 defines the gRPC API between the Cinder CSI driver
-// (Go) and the os-brick sidecar (Python).  The sidecar handles low-level
+// (Go) and the os-brick sidecar (Python). The sidecar handles low-level
 // volume attach/detach operations (iSCSI, FC, NVMe-oF, etc.) for nodes
 // using direct attachment mode (typically bare-metal nodes).
 
@@ -62,7 +62,7 @@ type OsBrickConnectorClient interface {
 	GetConnectorProperties(ctx context.Context, in *GetConnectorPropertiesRequest, opts ...grpc.CallOption) (*ConnectorProperties, error)
 	// ConnectVolume asks os-brick to attach a volume described by
 	// connection_info (the JSON dict returned by Cinder's
-	// InitializeConnection API).  Returns the local device path.
+	// InitializeConnection API). Returns the local device path.
 	ConnectVolume(ctx context.Context, in *ConnectVolumeRequest, opts ...grpc.CallOption) (*ConnectVolumeResponse, error)
 	// DisconnectVolume asks os-brick to detach a previously connected
 	// volume described by connection_info.
@@ -138,7 +138,7 @@ type OsBrickConnectorServer interface {
 	GetConnectorProperties(context.Context, *GetConnectorPropertiesRequest) (*ConnectorProperties, error)
 	// ConnectVolume asks os-brick to attach a volume described by
 	// connection_info (the JSON dict returned by Cinder's
-	// InitializeConnection API).  Returns the local device path.
+	// InitializeConnection API). Returns the local device path.
 	ConnectVolume(context.Context, *ConnectVolumeRequest) (*ConnectVolumeResponse, error)
 	// DisconnectVolume asks os-brick to detach a previously connected
 	// volume described by connection_info.
