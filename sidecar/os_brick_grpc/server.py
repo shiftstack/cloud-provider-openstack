@@ -28,8 +28,8 @@ import subprocess
 import grpc
 from os_brick.initiator import connector as brick_connector
 
-from osbrick.gen import connector_pb2
-from osbrick.gen import connector_pb2_grpc
+from os_brick_grpc.gen import connector_pb2
+from os_brick_grpc.gen import connector_pb2_grpc
 
 LOG = logging.getLogger(__name__)
 

@@ -46,7 +46,7 @@ RUN mkdir -p /build/gen && python -m grpc_tools.protoc \
     --python_out=/build/gen \
     --grpc_python_out=/build/gen \
     /proto/connector.proto \
-    && sed -i 's/^import connector_pb2/from osbrick.gen import connector_pb2/' /build/gen/connector_pb2_grpc.py
+    && sed -i 's/^import connector_pb2/from os_brick_grpc.gen import connector_pb2/' /build/gen/connector_pb2_grpc.py
 
 # ---
 
@@ -82,13 +82,13 @@ COPY --from=builder /usr/local/lib/python${PYTHON_VERSION}/site-packages /usr/lo
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy generated gRPC stubs.
-COPY --from=builder /build/gen/ /app/osbrick/gen/
+COPY --from=builder /build/gen/ /app/os_brick_grpc/gen/
 
 # Copy application source.
-COPY sidecar/osbrick/ /app/osbrick/
+COPY sidecar/os_brick_grpc/ /app/os_brick_grpc/
 
 # Ensure the gen directory has an __init__.py.
-RUN touch /app/osbrick/gen/__init__.py
+RUN touch /app/os_brick_grpc/gen/__init__.py
 
 # Entrypoint wrapper that symlinks host /run subdirectories from
 # /host/run into /run so os-brick tools find them, then starts the

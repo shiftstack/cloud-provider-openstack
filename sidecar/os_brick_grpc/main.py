@@ -32,8 +32,8 @@ from grpc_health.v1 import health
 from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
 
-from osbrick.gen import connector_pb2_grpc
-from osbrick.server import OsBrickConnectorServicer
+from os_brick_grpc.gen import connector_pb2_grpc
+from os_brick_grpc.server import OsBrickConnectorServicer
 
 LOG = logging.getLogger(__name__)
 

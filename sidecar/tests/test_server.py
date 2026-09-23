@@ -28,11 +28,11 @@ from grpc_testing import server_from_dictionary, strict_real_time
 
 # The generated stubs must be on sys.path. When running from the
 # sidecar directory:  PYTHONPATH=. python -m pytest tests/
-from osbrick.gen import connector_pb2
-from osbrick.gen import connector_pb2_grpc
+from os_brick_grpc.gen import connector_pb2
+from os_brick_grpc.gen import connector_pb2_grpc
 
 # Import after gen so the server module can resolve its imports.
-from osbrick import server
+from os_brick_grpc import server
 
 
 def _make_test_server():
@@ -46,8 +46,8 @@ def _make_test_server():
 
 
 class TestGetConnectorProperties(unittest.TestCase):
-    @mock.patch("osbrick.server._get_my_ip", return_value="10.0.0.1")
-    @mock.patch("osbrick.server.brick_connector.get_connector_properties")
+    @mock.patch("os_brick_grpc.server._get_my_ip", return_value="10.0.0.1")
+    @mock.patch("os_brick_grpc.server.brick_connector.get_connector_properties")
     def test_returns_properties(self, mock_get_props, mock_ip):
         mock_get_props.return_value = {
             "initiator": "iqn.2025-01.com.example:node1",
@@ -78,7 +78,7 @@ class TestGetConnectorProperties(unittest.TestCase):
 
 
 class TestConnectVolume(unittest.TestCase):
-    @mock.patch("osbrick.server.brick_connector.InitiatorConnector.factory")
+    @mock.patch("os_brick_grpc.server.brick_connector.InitiatorConnector.factory")
     def test_connect_volume(self, mock_factory):
         mock_connector = mock.MagicMock()
         mock_connector.connect_volume.return_value = {
@@ -115,7 +115,7 @@ class TestConnectVolume(unittest.TestCase):
 
 
 class TestDisconnectVolume(unittest.TestCase):
-    @mock.patch("osbrick.server.brick_connector.InitiatorConnector.factory")
+    @mock.patch("os_brick_grpc.server.brick_connector.InitiatorConnector.factory")
     def test_disconnect_volume(self, mock_factory):
         mock_connector = mock.MagicMock()
         mock_factory.return_value = mock_connector
@@ -144,7 +144,7 @@ class TestDisconnectVolume(unittest.TestCase):
 
 
 class TestExtendVolume(unittest.TestCase):
-    @mock.patch("osbrick.server.brick_connector.InitiatorConnector.factory")
+    @mock.patch("os_brick_grpc.server.brick_connector.InitiatorConnector.factory")
     def test_extend_volume(self, mock_factory):
         mock_connector = mock.MagicMock()
         mock_factory.return_value = mock_connector

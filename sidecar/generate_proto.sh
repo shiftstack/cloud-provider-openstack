@@ -29,7 +29,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROTO_FILE="${REPO_ROOT}/proto/osbrick/v1/connector.proto"
-OUT_DIR="${SCRIPT_DIR}/osbrick/gen"
+OUT_DIR="${SCRIPT_DIR}/os_brick_grpc/gen"
 
 mkdir -p "${OUT_DIR}"
 touch "${OUT_DIR}/__init__.py"
@@ -44,8 +44,8 @@ python -m grpc_tools.protoc \
 
 # Fix the import in the generated gRPC stub: protoc generates a bare
 # "import connector_pb2" which doesn't work when the file lives inside
-# the osbrick.gen package.
-sed -i 's/^import connector_pb2/from osbrick.gen import connector_pb2/' \
+# the os_brick_grpc.gen package.
+sed -i 's/^import connector_pb2/from os_brick_grpc.gen import connector_pb2/' \
   "${OUT_DIR}/connector_pb2_grpc.py"
 
 echo "Generated files:"

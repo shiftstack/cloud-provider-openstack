@@ -40,4 +40,4 @@ for entry in multipathd.sock iscsid.pid; do
     fi
 done
 
-exec python -m osbrick.main "$@"
+exec python -m os_brick_grpc.main "$@"
