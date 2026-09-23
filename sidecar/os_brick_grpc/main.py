@@ -24,6 +24,7 @@ import logging
 import os
 import signal
 import sys
+import types
 from concurrent import futures
 
 import grpc
@@ -41,7 +42,7 @@ DEFAULT_SOCKET_PATH = "/var/run/osbrick/osbrick.sock"
 SERVICE_NAME = "osbrick.v1.OsBrickConnector"
 
 
-def _configure_logging():
+def _configure_logging() -> None:
     """Set up structured logging to stderr."""
     logging.basicConfig(
         level=logging.INFO,
@@ -84,14 +85,14 @@ def _create_server(socket_path: str) -> grpc.Server:
     return server
 
 
-def _configure_oslo():
+def _configure_oslo() -> None:
     """Set required oslo.concurrency lock_path for os-brick."""
     lock_dir = "/var/run/osbrick/locks"
     os.makedirs(lock_dir, exist_ok=True)
     cfg.CONF.set_override("lock_path", lock_dir, group="oslo_concurrency")
 
 
-def main():
+def main() -> None:
     _configure_logging()
     _configure_oslo()
 
@@ -102,7 +103,7 @@ def main():
     server.start()
     LOG.info("os-brick sidecar is ready")
 
-    def _handle_signal(signum, frame):
+    def _handle_signal(signum: int, frame: types.FrameType | None) -> None:
         LOG.info("Received signal %d, shutting down...", signum)
         server.stop(grace=5)
 

@@ -17,7 +17,7 @@
 #
 # The host's /run is mounted at /host/run (instead of /run) to avoid
 # conflicting with CRI-O's internal overlay storage at
-# /run/containers/storage/.  This script symlinks the host runtime
+# /run/containers/storage/. This script symlinks the host runtime
 # directories that os-brick tools need into /run before starting the
 # gRPC server.
 

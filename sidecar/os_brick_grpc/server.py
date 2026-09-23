@@ -24,9 +24,11 @@ import logging
 import os
 import socket
 import subprocess
+from typing import Any
 
 import grpc
 from os_brick.initiator import connector as brick_connector
+from oslo_utils import strutils
 
 from os_brick_grpc.gen import connector_pb2
 from os_brick_grpc.gen import connector_pb2_grpc
@@ -40,12 +42,12 @@ ROOT_HELPER = os.environ.get("OSBRICK_ROOT_HELPER", "sudo")
 
 # Whether to report multipath capability in connector properties.
 # Set OSBRICK_MULTIPATH=false on hosts without multipath-tools.
-MULTIPATH = os.environ.get("OSBRICK_MULTIPATH", "true").lower() in (
-    "true", "1", "yes",
+MULTIPATH = strutils.bool_from_string(
+    os.environ.get("OSBRICK_MULTIPATH", "true"),
 )
 
 
-def _get_my_ip():
+def _get_my_ip() -> str:
     """Return the IP address of the host.
 
     Uses the OSBRICK_MY_IP environment variable if set, otherwise
@@ -65,7 +67,11 @@ def _get_my_ip():
 class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
     """Maps gRPC calls to os-brick connector operations."""
 
-    def GetConnectorProperties(self, request, context):
+    def GetConnectorProperties(
+        self,
+        request: connector_pb2.GetConnectorPropertiesRequest,
+        context: grpc.ServicerContext,
+    ) -> connector_pb2.ConnectorProperties:
         """Return host initiator information from os-brick."""
         try:
             my_ip = _get_my_ip()
@@ -108,7 +114,9 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         )
 
     @staticmethod
-    def _resolve_rbd_device(connection_info, symlink_path):
+    def _resolve_rbd_device(
+        connection_info: dict[str, Any], symlink_path: str,
+    ) -> str:
         """Look up the actual /dev/rbdN device for an RBD volume.
 
         os-brick returns a udev symlink path (/dev/rbd/<pool>/<image>)
@@ -157,7 +165,11 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         )
         return symlink_path
 
-    def ConnectVolume(self, request, context):
+    def ConnectVolume(
+        self,
+        request: connector_pb2.ConnectVolumeRequest,
+        context: grpc.ServicerContext,
+    ) -> connector_pb2.ConnectVolumeResponse:
         """Attach a volume using os-brick and return the device path."""
         try:
             connection_info = json.loads(request.connection_info)
@@ -225,7 +237,11 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
             multipath_device=multipath_device,
         )
 
-    def DisconnectVolume(self, request, context):
+    def DisconnectVolume(
+        self,
+        request: connector_pb2.DisconnectVolumeRequest,
+        context: grpc.ServicerContext,
+    ) -> connector_pb2.DisconnectVolumeResponse:
         """Detach a previously connected volume using os-brick."""
         try:
             connection_info = json.loads(request.connection_info)
@@ -271,7 +287,11 @@ class OsBrickConnectorServicer(connector_pb2_grpc.OsBrickConnectorServicer):
         LOG.info("DisconnectVolume: success")
         return connector_pb2.DisconnectVolumeResponse()
 
-    def ExtendVolume(self, request, context):
+    def ExtendVolume(
+        self,
+        request: connector_pb2.ExtendVolumeRequest,
+        context: grpc.ServicerContext,
+    ) -> connector_pb2.ExtendVolumeResponse:
         """Rescan/extend a connected volume using os-brick."""
         try:
             connection_info = json.loads(request.connection_info)
